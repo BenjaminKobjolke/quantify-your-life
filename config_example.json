@@ -6,6 +6,13 @@
         "hometrainer": {
             "logs_path": "C:/path/to/Hometrainer_Logs",
             "unit": "km"
+        },
+        "git_stats": {
+            "author": "Your Name",
+            "root_paths": [
+                "C:/path/to/git/repos",
+                "D:/another/git/folder"
+            ]
         }
     },
     "export": {
@@ -13,7 +20,10 @@
         "entries": [
             {"source": "track_and_graph", "type": "group", "id": 1},
             {"source": "track_and_graph", "type": "feature", "id": 10},
-            {"source": "hometrainer", "type": "stats", "id": null}
+            {"source": "hometrainer", "type": "stats", "id": null},
+            {"source": "git_stats", "type": "added", "id": null},
+            {"source": "git_stats", "type": "removed", "id": null},
+            {"source": "git_stats", "type": "net", "id": null}
         ]
     }
 }

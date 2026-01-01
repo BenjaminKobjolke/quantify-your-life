@@ -11,7 +11,7 @@ and to centralize formatting logic.
 from quantify.services.stats_calculator import TimeStats
 
 # Re-export TimeStats for backwards compatibility
-__all__ = ["TimeStats", "format_duration", "format_trend", "format_distance"]
+__all__ = ["TimeStats", "format_duration", "format_trend", "format_distance", "format_lines"]
 
 
 def format_duration(seconds: float) -> str:
@@ -63,18 +63,32 @@ def format_distance(value: float, unit: str) -> str:
     return f"{value:.1f} {unit}"
 
 
+def format_lines(value: float) -> str:
+    """Format line count with thousands separator.
+
+    Args:
+        value: Number of lines.
+
+    Returns:
+        Formatted string like "1,234 lines" or "0 lines".
+    """
+    return f"{int(value):,} lines"
+
+
 def format_value(value: float, unit: str, unit_label: str) -> str:
     """Format a value based on its unit type.
 
     Args:
         value: The value to format.
-        unit: Unit type ("time" or "distance").
-        unit_label: Unit label for display (e.g., "h", "km", "mi").
+        unit: Unit type ("time", "distance", or "lines").
+        unit_label: Unit label for display (e.g., "h", "km", "mi", "lines").
 
     Returns:
         Formatted string appropriate for the unit type.
     """
     if unit == "time":
         return format_duration(value)
+    elif unit == "lines":
+        return format_lines(value)
     else:
         return format_distance(value, unit_label)

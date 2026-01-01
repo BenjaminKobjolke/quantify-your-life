@@ -1,0 +1,191 @@
+"""Data provider for git statistics."""
+
+from collections.abc import Callable
+from datetime import date
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from quantify.sources.git_stats.git_log_parser import GitLogParser, GitStats
+
+if TYPE_CHECKING:
+    from quantify.sources.git_stats.stats_cache import GitStatsCache
+
+
+# Type alias for progress callback
+ProgressCallback = Callable[[str, int, int], None] | None
+
+
+class GitStatsDataProvider:
+    """Provides aggregated git stats across all repositories with caching."""
+
+    def __init__(
+        self,
+        repos: list[Path],
+        git_parser: GitLogParser,
+        stat_type: str,
+        cache: "GitStatsCache",
+        progress_callback: ProgressCallback = None,
+    ) -> None:
+        """Initialize data provider.
+
+        Args:
+            repos: List of repository paths to aggregate.
+            git_parser: Parser for extracting git statistics.
+            stat_type: Type of stat to return ("added", "removed", or "net").
+            cache: SQLite cache for storing/retrieving daily stats.
+            progress_callback: Optional callback for progress updates.
+                              Signature: callback(repo_name, current, total)
+        """
+        self._repos = repos
+        self._parser = git_parser
+        self._stat_type = stat_type
+        self._cache = cache
+        self._progress_callback = progress_callback
+
+    def get_sum(
+        self,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> float:
+        """Sum stats across all repositories for date range.
+
+        Cache behavior:
+        - If start_date is None: Skip cache, query git directly (unbounded query)
+        - If end_date is None: Use today as end_date
+        - Today's stats are always re-queried from git (never cached)
+        - Historical dates use cache, with missing dates fetched from git
+
+        Args:
+            start_date: First day to include (None for no lower bound).
+            end_date: Last day to include (None for today).
+
+        Returns:
+            Sum of the selected stat type across all repos.
+        """
+        # Handle unbounded queries - skip cache entirely
+        if start_date is None:
+            return self._get_sum_uncached(start_date, end_date)
+
+        # Normalize end_date
+        effective_end = end_date if end_date is not None else date.today()
+
+        total_added = 0
+        total_removed = 0
+        total_repos = len(self._repos)
+
+        for idx, repo in enumerate(self._repos):
+            # Report progress
+            if self._progress_callback:
+                self._progress_callback(repo.name, idx + 1, total_repos)
+
+            # Get stats for this repo (using cache)
+            added, removed = self._get_repo_stats_cached(
+                repo, start_date, effective_end
+            )
+            total_added += added
+            total_removed += removed
+
+        # Return based on stat type
+        return float(self._compute_stat(total_added, total_removed))
+
+    def _get_repo_stats_cached(
+        self,
+        repo: Path,
+        start_date: date,
+        end_date: date,
+    ) -> tuple[int, int]:
+        """Get stats for a single repo using cache.
+
+        Algorithm:
+        1. Get sum of cached dates in range
+        2. Find missing dates (not in cache, or today)
+        3. Query git for each missing date
+        4. Save missing dates to cache (except today)
+        5. Add missing stats to cached sum
+
+        Args:
+            repo: Repository path.
+            start_date: Start of date range (inclusive).
+            end_date: End of date range (inclusive).
+
+        Returns:
+            Tuple of (total_added, total_removed) for the range.
+        """
+        # 1. Get cached sum for historical dates
+        cached_added, cached_removed = self._cache.get_cached_sum(
+            repo, start_date, end_date
+        )
+
+        # 2. Find dates that need git queries
+        missing_dates = self._cache.get_missing_dates(repo, start_date, end_date)
+
+        if not missing_dates:
+            return (cached_added, cached_removed)
+
+        # 3. Query git for missing dates and accumulate
+        missing_added = 0
+        missing_removed = 0
+        today = date.today()
+        stats_to_cache: dict[date, GitStats] = {}
+
+        for day in missing_dates:
+            stats = self._parser.get_daily_stats(repo, day)
+            missing_added += stats.added
+            missing_removed += stats.removed
+
+            # Only cache historical dates, not today
+            if day < today:
+                stats_to_cache[day] = stats
+
+        # 4. Batch save to cache
+        if stats_to_cache:
+            self._cache.save_batch(repo, stats_to_cache)
+
+        # 5. Return combined sum
+        return (cached_added + missing_added, cached_removed + missing_removed)
+
+    def _get_sum_uncached(
+        self,
+        start_date: date | None,
+        end_date: date | None,
+    ) -> float:
+        """Get sum without using cache (for unbounded queries).
+
+        Used when start_date is None, meaning we need ALL history.
+        Cannot efficiently cache this since we don't know the earliest date.
+
+        Args:
+            start_date: First day (always None for this method).
+            end_date: Last day to include.
+
+        Returns:
+            Sum of the selected stat type.
+        """
+        total = 0
+        total_repos = len(self._repos)
+
+        for idx, repo in enumerate(self._repos):
+            if self._progress_callback:
+                self._progress_callback(repo.name, idx + 1, total_repos)
+
+            stats = self._parser.get_stats(repo, start_date, end_date)
+            total += self._compute_stat(stats.added, stats.removed)
+
+        return float(total)
+
+    def _compute_stat(self, added: int, removed: int) -> int:
+        """Compute the appropriate stat based on stat_type.
+
+        Args:
+            added: Lines added count.
+            removed: Lines removed count.
+
+        Returns:
+            The requested stat value.
+        """
+        if self._stat_type == "added":
+            return added
+        elif self._stat_type == "removed":
+            return removed
+        else:  # net
+            return added - removed

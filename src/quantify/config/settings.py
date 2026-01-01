@@ -30,11 +30,145 @@ class HometrainerConfig:
 
 
 @dataclass(frozen=True)
+class GitStatsConfig:
+    """Configuration for Git statistics data source."""
+
+    author: str
+    root_paths: tuple[str, ...]
+    exclude_dirs: tuple[str, ...] = (
+        # Python
+        "venv",
+        ".venv",
+        "env",
+        ".env",
+        "__pycache__",
+        ".pytest_cache",
+        ".tox",
+        ".mypy_cache",
+        "htmlcov",
+        ".eggs",
+        # Node.js / TypeScript
+        "node_modules",
+        ".npm",
+        ".yarn",
+        ".pnpm-store",
+        ".next",
+        ".nuxt",
+        ".cache",
+        "coverage",
+        ".turbo",
+        # PHP
+        "vendor",
+        # Java / Kotlin / Android
+        "target",
+        ".gradle",
+        ".m2",
+        # C# / .NET
+        "bin",
+        "obj",
+        "packages",
+        ".nuget",
+        # Flutter / Dart
+        ".dart_tool",
+        ".pub-cache",
+        ".pub",
+        # General build output
+        "build",
+        "dist",
+        "out",
+        "output",
+        "_build",
+        # IDE / Editor
+        ".idea",
+        ".vscode",
+        ".vs",
+    )
+    exclude_extensions: tuple[str, ...] = (
+        # Lock files (machine-generated)
+        ".lock",
+        # Config/data files
+        ".json",
+        ".xml",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".properties",
+        ".plist",
+        # Documentation
+        ".md",
+        ".txt",
+        ".rst",
+        ".adoc",
+        ".org",
+        # Web content (non-logic)
+        ".html",
+        ".htm",
+        ".css",
+        ".scss",
+        ".sass",
+        ".less",
+        # Media / Assets
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".ico",
+        ".webp",
+        ".mp4",
+        ".mp3",
+        ".wav",
+        ".pdf",
+        ".ttf",
+        ".woff",
+        ".woff2",
+        ".eot",
+        # Data files
+        ".csv",
+        ".sql",
+        ".db",
+        ".sqlite",
+        # Generated Dart/Flutter files
+        ".g.dart",
+        ".freezed.dart",
+        ".gr.dart",
+        # Generated TypeScript/JS
+        ".d.ts",
+        ".min.js",
+        ".min.css",
+        ".map",
+        # Other generated
+        ".generated.cs",
+        ".designer.cs",
+    )
+    exclude_filenames: tuple[str, ...] = (
+        # Lock files by name
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "Pipfile.lock",
+        "poetry.lock",
+        "composer.lock",
+        "Gemfile.lock",
+        "Cargo.lock",
+        "go.sum",
+        "pubspec.lock",
+        # Other generated
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+    )
+
+
+@dataclass(frozen=True)
 class SourcesConfig:
     """Configuration for all data sources."""
 
     track_and_graph: TrackAndGraphConfig | None = None
     hometrainer: HometrainerConfig | None = None
+    git_stats: GitStatsConfig | None = None
 
 
 # Export config
@@ -135,9 +269,26 @@ class Settings:
                 unit=ht_data.get("unit", "km"),
             )
 
+        # Git Stats config
+        git_stats_config = None
+        gs_data = sources_data.get("git_stats")
+        if gs_data and gs_data.get("author") and gs_data.get("root_paths"):
+            git_stats_config = GitStatsConfig(
+                author=gs_data["author"],
+                root_paths=tuple(gs_data["root_paths"]),
+                exclude_dirs=tuple(gs_data.get("exclude_dirs", GitStatsConfig.exclude_dirs)),
+                exclude_extensions=tuple(
+                    gs_data.get("exclude_extensions", GitStatsConfig.exclude_extensions)
+                ),
+                exclude_filenames=tuple(
+                    gs_data.get("exclude_filenames", GitStatsConfig.exclude_filenames)
+                ),
+            )
+
         sources_config = SourcesConfig(
             track_and_graph=track_and_graph_config,
             hometrainer=hometrainer_config,
+            git_stats=git_stats_config,
         )
 
         # Export settings
@@ -174,6 +325,7 @@ class Settings:
         sources_config = SourcesConfig(
             track_and_graph=TrackAndGraphConfig(db_path=db_path),
             hometrainer=None,
+            git_stats=None,
         )
 
         # Convert legacy export settings to new format

@@ -11,6 +11,7 @@ from quantify.config.config_writer import ConfigWriter
 from quantify.config.constants import Constants
 from quantify.config.settings import ConfigError, Settings
 from quantify.export.html_exporter import HtmlExporter
+from quantify.sources.git_stats import GitStatsSource
 from quantify.sources.hometrainer import HometrainerSource
 from quantify.sources.registry import SourceRegistry
 from quantify.sources.track_and_graph import TrackAndGraphSource
@@ -39,6 +40,17 @@ def _create_source_registry(settings: Settings) -> SourceRegistry:
             settings.sources.hometrainer.unit,
         )
         registry.register(ht_source)
+
+    # Register Git Stats source
+    if settings.sources.git_stats:
+        gs_source = GitStatsSource(
+            author=settings.sources.git_stats.author,
+            root_paths=list(settings.sources.git_stats.root_paths),
+            exclude_dirs=list(settings.sources.git_stats.exclude_dirs),
+            exclude_extensions=list(settings.sources.git_stats.exclude_extensions),
+            exclude_filenames=list(settings.sources.git_stats.exclude_filenames),
+        )
+        registry.register(gs_source)
 
     return registry
 
