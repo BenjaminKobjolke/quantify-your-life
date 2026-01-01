@@ -159,9 +159,7 @@ class StatsService:
             avg_per_day_last_year=avg_last_year,
             this_week=get_sum(feature_ids, ranges["week_start"], ranges["now"]),
             this_month=get_sum(feature_ids, ranges["month_start"], ranges["now"]),
-            last_month=get_sum(
-                feature_ids, ranges["last_month_start"], ranges["last_month_end"]
-            ),
+            last_month=get_sum(feature_ids, ranges["last_month_start"], ranges["last_month_end"]),
             last_12_months=last_12_months_sum,
             total=get_sum(feature_ids),
         )
@@ -204,9 +202,7 @@ class StatsService:
 
         # Last month boundaries
         last_month_end = month_start - timedelta(seconds=1)
-        last_month_start = last_month_end.replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
+        last_month_start = last_month_end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         # 12 months ago
         months_12_ago = today_start - timedelta(days=365)

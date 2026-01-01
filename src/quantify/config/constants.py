@@ -40,3 +40,35 @@ class Constants:
 
     # Config
     CONFIG_FILE_NAME: str = "config.json"
+
+    # Export config menu
+    EXPORT_MENU_TITLE: str = "What would you like to do?"
+    EXPORT_MENU_ADD: str = "Add entry"
+    EXPORT_MENU_REMOVE: str = "Remove entry"
+    EXPORT_MENU_SET_PATH: str = "Set export path"
+    EXPORT_MENU_EXIT: str = "Exit"
+
+    EXPORT_TYPE_TITLE: str = "What type to add?"
+    EXPORT_TYPE_GROUP: str = "Group"
+    EXPORT_TYPE_FEATURE: str = "Feature"
+
+    EXPORT_SELECT_GROUP: str = "Select a group:"
+    EXPORT_SELECT_FEATURE: str = "Select a feature:"
+    EXPORT_SELECT_REMOVE: str = "Select entry to remove:"
+    EXPORT_ENTER_PATH: str = "Enter export path:"
+
+    # Export messages
+    EXPORT_ADDED_GROUP: str = 'Added group "{name}" (ID {id}) to export config'
+    EXPORT_ADDED_FEATURE: str = 'Added feature "{name}" (ID {id}) to export config'
+    EXPORT_REMOVED: str = 'Removed "{name}" from export config'
+    EXPORT_PATH_SET: str = "Export path set to: {path}"
+    EXPORT_NO_ENTRIES: str = "No entries configured for export"
+    EXPORT_NO_PATH: str = "No export path configured. Please set export path first."
+    EXPORT_SUCCESS: str = "Exported {count} file(s) to {path}"
+    EXPORT_GROUP_NOT_FOUND: str = "Group ID {id} not found"
+    EXPORT_FEATURE_NOT_FOUND: str = "Feature ID {id} not found"
+    EXPORT_ALREADY_EXISTS: str = '"{name}" is already in export config'
+
+    # Export labels
+    EXPORT_LABEL_GROUP: str = "Group: {name} (ID {id})"
+    EXPORT_LABEL_FEATURE: str = "Feature: {name} (ID {id})"

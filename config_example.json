@@ -1,3 +1,8 @@
 {
-    "db_path": "C:/path/to/your/track_and_graph.db"
+    "db_path": "C:/path/to/your/track_and_graph.db",
+    "export": {
+        "path": "C:/path/to/export/folder",
+        "groups": [],
+        "features": []
+    }
 }

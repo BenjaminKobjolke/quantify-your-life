@@ -4,12 +4,15 @@ version = "0.1.0"
 description = "CLI tool to view time statistics from Track & Graph database"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+    "jinja2>=3.1.6",
     "questionary>=2.0.0",
     "rich>=13.0.0",
 ]
 
 [project.scripts]
 quantify = "quantify.main:main"
+quantify-export-config = "quantify.main:export_config"
+quantify-export = "quantify.main:export"
 
 [build-system]
 requires = ["hatchling"]

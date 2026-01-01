@@ -12,10 +12,20 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
+class ExportSettings:
+    """Export configuration settings."""
+
+    path: str
+    groups: tuple[int, ...]
+    features: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class Settings:
     """Application settings."""
 
     db_path: str
+    export: ExportSettings | None = None
 
     @classmethod
     def load(cls, base_dir: Path | None = None) -> "Settings":
@@ -45,4 +55,13 @@ class Settings:
         if not db_path:
             raise ConfigError("db_path is required in config.json")
 
-        return cls(db_path=db_path)
+        export_settings = None
+        export_data = data.get("export")
+        if export_data:
+            export_settings = ExportSettings(
+                path=export_data.get("path", ""),
+                groups=tuple(export_data.get("groups", [])),
+                features=tuple(export_data.get("features", [])),
+            )
+
+        return cls(db_path=db_path, export=export_settings)
