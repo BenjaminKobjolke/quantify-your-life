@@ -12,6 +12,7 @@ This tool reads the SQLite database exported from [Track & Graph](https://github
 
 - View statistics by **Group** (aggregated) or **Feature** (individual tracker)
 - Arrow key navigation for easy selection
+- **HTML Export** with charts for configured groups/features
 - Comprehensive time statistics:
   - Last 7 days / Last 31 days
   - Average per day (last 30 days, last 12 months, this year, last year)
@@ -46,16 +47,45 @@ This tool reads the SQLite database exported from [Track & Graph](https://github
 
 ## Usage
 
-### Windows
-Double-click `start.bat` or run:
+### View Statistics (CLI)
+
+**Windows:** Double-click `start.bat` or run:
 ```bash
 uv run quantify
 ```
 
-### Linux/macOS
+**Linux/macOS:**
 ```bash
 uv run quantify
 ```
+
+### HTML Export
+
+Export statistics to HTML files with interactive charts.
+
+#### 1. Configure Export
+
+**Windows:** Double-click `export-config.bat` or run:
+```bash
+uv run quantify-export-config
+```
+
+This opens an interactive menu where you can:
+- **Add entry** - Select groups or features to export
+- **Remove entry** - Remove items from export list
+- **Set export path** - Configure where HTML files are saved
+
+#### 2. Run Export
+
+**Windows:** Double-click `export.bat` or run:
+```bash
+uv run quantify-export
+```
+
+This generates HTML files with:
+- Statistics table (same data as CLI)
+- Bar chart visualization
+- Dark theme styling
 
 ## Example Output
 
