@@ -5,10 +5,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from quantify.config.settings import ExportSettings
-from quantify.db.repositories.groups import Group
+from quantify.config.settings import ExportEntry, ExportSettings
 from quantify.export.html_exporter import HtmlExporter
-from quantify.services.stats import TimeStats
+from quantify.services.stats_calculator import TimeStats
+from quantify.sources.base import DataSource, SourceInfo
+from quantify.sources.registry import SourceRegistry
 
 
 @pytest.fixture
@@ -31,13 +32,23 @@ def mock_stats() -> TimeStats:
 
 
 @pytest.fixture
-def mock_group() -> Group:
-    """Create mock Group."""
-    return Group(id=1, name="Test Group", display_index=0, parent_group_id=None, color_index=0)
+def mock_source(mock_stats: TimeStats) -> MagicMock:
+    """Create a mock DataSource."""
+    source = MagicMock(spec=DataSource)
+    source.info = SourceInfo(
+        id="track_and_graph",
+        display_name="Track & Graph",
+        unit="time",
+        unit_label="h",
+    )
+    source.get_item_name.return_value = "Test Group"
+    source.get_stats.return_value = mock_stats
+    source.is_configured.return_value = True
+    return source
 
 
 @pytest.fixture
-def setup_exporter(tmp_path: Path) -> tuple[HtmlExporter, Path]:
+def setup_exporter(tmp_path: Path, mock_source: MagicMock) -> tuple[HtmlExporter, Path]:
     """Set up exporter with mock services and temporary directories."""
     templates_dir = tmp_path / "templates"
     static_dir = tmp_path / "static"
@@ -46,7 +57,7 @@ def setup_exporter(tmp_path: Path) -> tuple[HtmlExporter, Path]:
     (static_dir / "css").mkdir()
     (static_dir / "js").mkdir()
 
-    # Create minimal template
+    # Create minimal stats template
     template_content = """<!DOCTYPE html>
 <html>
 <head><title>{{ title }}</title></head>
@@ -61,18 +72,28 @@ def setup_exporter(tmp_path: Path) -> tuple[HtmlExporter, Path]:
 </html>"""
     (templates_dir / "stats.html").write_text(template_content)
 
+    # Create minimal index template
+    index_template = """<!DOCTYPE html>
+<html>
+<head><title>Index</title></head>
+<body>
+{% for entry in entries %}
+<a href="{{ entry.filename }}">{{ entry.name }}</a>
+{% endfor %}
+</body>
+</html>"""
+    (templates_dir / "index.html").write_text(index_template)
+
     # Create static files
     (static_dir / "css" / "stats.css").write_text("body { margin: 0; }")
     (static_dir / "js" / "chart.js").write_text("// chart")
 
-    mock_stats_service = MagicMock()
-    mock_groups_repo = MagicMock()
-    mock_features_repo = MagicMock()
+    # Create registry with mock source
+    registry = SourceRegistry()
+    registry.register(mock_source)
 
     exporter = HtmlExporter(
-        stats_service=mock_stats_service,
-        groups_repo=mock_groups_repo,
-        features_repo=mock_features_repo,
+        registry=registry,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -83,44 +104,40 @@ def setup_exporter(tmp_path: Path) -> tuple[HtmlExporter, Path]:
 def test_export_creates_html_file(
     setup_exporter: tuple[HtmlExporter, Path],
     mock_stats: TimeStats,
-    mock_group: Group,
 ) -> None:
     """Test that export creates HTML file."""
     exporter, tmp_path = setup_exporter
     output_dir = tmp_path / "output"
 
-    exporter._stats.get_group_stats.return_value = mock_stats
-    exporter._groups.get_by_id.return_value = mock_group
-
     export_settings = ExportSettings(
         path=str(output_dir),
-        groups=(1,),
-        features=(),
+        entries=(
+            ExportEntry(source="track_and_graph", entry_type="group", entry_id=1),
+        ),
     )
 
     generated = exporter.export(export_settings)
 
-    assert len(generated) == 1
-    assert generated[0].exists()
-    assert generated[0].suffix == ".html"
+    # First file is index.html, second is the stats file
+    assert len(generated) == 2
+    assert generated[0].name == "index.html"
+    assert generated[1].exists()
+    assert generated[1].suffix == ".html"
 
 
 def test_export_copies_static_files(
     setup_exporter: tuple[HtmlExporter, Path],
     mock_stats: TimeStats,
-    mock_group: Group,
 ) -> None:
     """Test that export copies static CSS and JS files."""
     exporter, tmp_path = setup_exporter
     output_dir = tmp_path / "output"
 
-    exporter._stats.get_group_stats.return_value = mock_stats
-    exporter._groups.get_by_id.return_value = mock_group
-
     export_settings = ExportSettings(
         path=str(output_dir),
-        groups=(1,),
-        features=(),
+        entries=(
+            ExportEntry(source="track_and_graph", entry_type="group", entry_id=1),
+        ),
     )
 
     exporter.export(export_settings)
@@ -132,43 +149,122 @@ def test_export_copies_static_files(
 def test_export_html_contains_stats(
     setup_exporter: tuple[HtmlExporter, Path],
     mock_stats: TimeStats,
-    mock_group: Group,
 ) -> None:
     """Test that exported HTML contains statistics."""
     exporter, tmp_path = setup_exporter
     output_dir = tmp_path / "output"
 
-    exporter._stats.get_group_stats.return_value = mock_stats
-    exporter._groups.get_by_id.return_value = mock_group
-
     export_settings = ExportSettings(
         path=str(output_dir),
-        groups=(1,),
-        features=(),
+        entries=(
+            ExportEntry(source="track_and_graph", entry_type="group", entry_id=1),
+        ),
     )
 
     generated = exporter.export(export_settings)
-    content = generated[0].read_text()
+    # generated[0] is index.html, generated[1] is the stats file
+    content = generated[1].read_text()
 
     assert "Test Group" in content
     assert "Last 7 days" in content
 
 
-def test_export_skips_missing_groups(
-    setup_exporter: tuple[HtmlExporter, Path],
+def test_export_skips_missing_sources(
+    tmp_path: Path,
 ) -> None:
-    """Test that export skips groups not found in database."""
-    exporter, tmp_path = setup_exporter
+    """Test that export skips entries for sources not in registry."""
+    templates_dir = tmp_path / "templates"
+    static_dir = tmp_path / "static"
+    templates_dir.mkdir()
+    static_dir.mkdir()
+    (static_dir / "css").mkdir()
+    (static_dir / "js").mkdir()
+
+    # Create minimal templates
+    (templates_dir / "stats.html").write_text("<html></html>")
+    (templates_dir / "index.html").write_text("<html>{% for e in entries %}{{ e.name }}{% endfor %}</html>")
+
+    # Empty registry
+    registry = SourceRegistry()
+
+    exporter = HtmlExporter(
+        registry=registry,
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+    )
+
     output_dir = tmp_path / "output"
-
-    exporter._groups.get_by_id.return_value = None
-
     export_settings = ExportSettings(
         path=str(output_dir),
-        groups=(999,),
-        features=(),
+        entries=(
+            ExportEntry(source="nonexistent", entry_type="group", entry_id=999),
+        ),
     )
 
     generated = exporter.export(export_settings)
 
-    assert len(generated) == 0
+    # Only index.html is generated (no stats files since source not found)
+    assert len(generated) == 1
+    assert generated[0].name == "index.html"
+
+
+def test_export_hometrainer_format(
+    tmp_path: Path,
+    mock_stats: TimeStats,
+) -> None:
+    """Test that Hometrainer exports use distance formatting."""
+    templates_dir = tmp_path / "templates"
+    static_dir = tmp_path / "static"
+    templates_dir.mkdir()
+    static_dir.mkdir()
+    (static_dir / "css").mkdir()
+    (static_dir / "js").mkdir()
+
+    template_content = """<!DOCTYPE html>
+<html>
+<head><title>{{ title }}</title></head>
+<body>
+{% for row in stats_rows %}
+<p>{{ row.period }}: {{ row.value }}</p>
+{% endfor %}
+</body>
+</html>"""
+    (templates_dir / "stats.html").write_text(template_content)
+    (templates_dir / "index.html").write_text("<html>{% for e in entries %}{{ e.name }}{% endfor %}</html>")
+
+    # Create hometrainer mock source
+    ht_source = MagicMock(spec=DataSource)
+    ht_source.info = SourceInfo(
+        id="hometrainer",
+        display_name="Hometrainer",
+        unit="distance",
+        unit_label="km",
+    )
+    ht_source.get_item_name.return_value = "Hometrainer (km)"
+    ht_source.get_stats.return_value = mock_stats
+    ht_source.is_configured.return_value = True
+
+    registry = SourceRegistry()
+    registry.register(ht_source)
+
+    exporter = HtmlExporter(
+        registry=registry,
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+    )
+
+    output_dir = tmp_path / "output"
+    export_settings = ExportSettings(
+        path=str(output_dir),
+        entries=(
+            ExportEntry(source="hometrainer", entry_type="stats", entry_id=None),
+        ),
+    )
+
+    generated = exporter.export(export_settings)
+    # generated[0] is index.html, generated[1] is the stats file
+    content = generated[1].read_text()
+
+    # Should use distance format (km) not time format (h m)
+    assert "km" in content
+    assert "Hometrainer" in content

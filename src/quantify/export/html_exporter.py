@@ -9,9 +9,8 @@ from jinja2 import Environment, FileSystemLoader
 
 from quantify.config.constants import Constants
 from quantify.config.settings import ExportSettings
-from quantify.db.repositories.features import FeaturesRepository
-from quantify.db.repositories.groups import GroupsRepository
-from quantify.services.stats import StatsService, TimeStats, format_duration, format_trend
+from quantify.services.stats import TimeStats, format_trend, format_value
+from quantify.sources.registry import SourceRegistry
 
 
 @dataclass
@@ -29,24 +28,18 @@ class HtmlExporter:
 
     def __init__(
         self,
-        stats_service: StatsService,
-        groups_repo: GroupsRepository,
-        features_repo: FeaturesRepository,
+        registry: SourceRegistry,
         templates_dir: Path,
         static_dir: Path,
     ) -> None:
         """Initialize HTML exporter.
 
         Args:
-            stats_service: Service for calculating statistics.
-            groups_repo: Repository for groups.
-            features_repo: Repository for features.
+            registry: Source registry with configured sources.
             templates_dir: Path to templates directory.
             static_dir: Path to static files directory.
         """
-        self._stats = stats_service
-        self._groups = groups_repo
-        self._features = features_repo
+        self._registry = registry
         self._templates_dir = templates_dir
         self._static_dir = static_dir
         self._env = Environment(
@@ -55,7 +48,7 @@ class HtmlExporter:
         )
 
     def export(self, export_settings: ExportSettings) -> list[Path]:
-        """Export configured groups and features to HTML.
+        """Export configured entries to HTML.
 
         Args:
             export_settings: Export configuration.
@@ -70,40 +63,71 @@ class HtmlExporter:
         self._copy_static_files(output_dir)
 
         generated_files: list[Path] = []
+        index_entries: list[dict[str, str]] = []
 
-        # Export groups
-        for group_id in export_settings.groups:
-            group = self._groups.get_by_id(group_id)
-            if group is None:
+        # Export each entry
+        for entry in export_settings.entries:
+            source = self._registry.get_by_id(entry.source)
+            if source is None:
                 continue
 
-            stats = self._stats.get_group_stats(group_id)
-            file_path = self._export_stats(
-                output_dir=output_dir,
-                name=group.name,
-                entry_id=group.id,
-                entry_type="group",
-                stats=stats,
-            )
-            generated_files.append(file_path)
+            # Get item name
+            if hasattr(source, "get_item_name"):
+                name = source.get_item_name(entry.entry_id, entry.entry_type)
+            else:
+                items = source.get_selectable_items()
+                name = items[0].name if items else entry.source
 
-        # Export features
-        for feature_id in export_settings.features:
-            feature = self._features.get_by_id(feature_id)
-            if feature is None:
+            if name is None:
                 continue
 
-            stats = self._stats.get_feature_stats(feature_id)
+            # Get stats
+            stats = source.get_stats(entry.entry_id, entry.entry_type)
+
+            # Export to HTML
             file_path = self._export_stats(
                 output_dir=output_dir,
-                name=feature.name,
-                entry_id=feature.id,
-                entry_type="feature",
+                name=name,
+                entry_id=entry.entry_id,
+                entry_type=entry.entry_type,
+                source_id=entry.source,
                 stats=stats,
+                unit=source.info.unit,
+                unit_label=source.info.unit_label,
             )
             generated_files.append(file_path)
+            index_entries.append({"name": name, "filename": file_path.name})
+
+        # Generate index.html
+        index_path = self._export_index(output_dir, index_entries)
+        generated_files.insert(0, index_path)
 
         return generated_files
+
+    def _export_index(
+        self, output_dir: Path, entries: list[dict[str, str]]
+    ) -> Path:
+        """Generate index.html with links to all exported stats.
+
+        Args:
+            output_dir: Output directory path.
+            entries: List of dicts with 'name' and 'filename' keys.
+
+        Returns:
+            Path to generated index.html.
+        """
+        template = self._env.get_template("index.html")
+
+        html_content = template.render(
+            entries=entries,
+            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        )
+
+        file_path = output_dir / "index.html"
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+        return file_path
 
     def _copy_static_files(self, output_dir: Path) -> None:
         """Copy static CSS and JS files to output directory.
@@ -131,18 +155,24 @@ class HtmlExporter:
         self,
         output_dir: Path,
         name: str,
-        entry_id: int,
+        entry_id: int | None,
         entry_type: str,
+        source_id: str,
         stats: TimeStats,
+        unit: str,
+        unit_label: str,
     ) -> Path:
         """Export statistics for a single entry.
 
         Args:
             output_dir: Output directory path.
-            name: Name of the group or feature.
+            name: Name of the item.
             entry_id: ID of the entry.
-            entry_type: Type of entry ("group" or "feature").
+            entry_type: Type of entry ("group", "feature", "stats").
+            source_id: Source identifier.
             stats: Statistics to export.
+            unit: Unit type ("time" or "distance").
+            unit_label: Unit label for display.
 
         Returns:
             Path to generated HTML file.
@@ -150,7 +180,7 @@ class HtmlExporter:
         template = self._env.get_template("stats.html")
 
         title = name
-        stats_rows = self._build_stats_rows(stats)
+        stats_rows = self._build_stats_rows(stats, unit, unit_label)
         chart_labels, chart_values = self._build_chart_data(stats)
 
         html_content = template.render(
@@ -166,12 +196,15 @@ class HtmlExporter:
             ],
             chart_labels=chart_labels,
             chart_values=chart_values,
+            unit=unit,
+            unit_label=unit_label,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         )
 
         # Generate filename
         safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
-        filename = f"{entry_type}_{entry_id}_{safe_name}.html"
+        entry_id_str = str(entry_id) if entry_id is not None else "all"
+        filename = f"{source_id}_{entry_type}_{entry_id_str}_{safe_name}.html"
         file_path = output_dir / filename
 
         with open(file_path, "w", encoding="utf-8") as f:
@@ -179,20 +212,27 @@ class HtmlExporter:
 
         return file_path
 
-    def _build_stats_rows(self, stats: TimeStats) -> list[StatsRow]:
+    def _build_stats_rows(
+        self, stats: TimeStats, unit: str, unit_label: str
+    ) -> list[StatsRow]:
         """Build stats table rows from TimeStats.
 
         Args:
             stats: Statistics data.
+            unit: Unit type ("time" or "distance").
+            unit_label: Unit label for display.
 
         Returns:
             List of stats rows for the template.
         """
         rows: list[StatsRow] = []
 
+        def fmt(value: float) -> str:
+            return format_value(value, unit, unit_label)
+
         # Recent periods
-        rows.append(StatsRow(Constants.PERIOD_LAST_7_DAYS, format_duration(stats.last_7_days)))
-        rows.append(StatsRow(Constants.PERIOD_LAST_31_DAYS, format_duration(stats.last_31_days)))
+        rows.append(StatsRow(Constants.PERIOD_LAST_7_DAYS, fmt(stats.last_7_days)))
+        rows.append(StatsRow(Constants.PERIOD_LAST_31_DAYS, fmt(stats.last_31_days)))
 
         # Separator
         rows.append(StatsRow("", "", is_separator=True))
@@ -201,7 +241,7 @@ class HtmlExporter:
         rows.append(
             StatsRow(
                 Constants.PERIOD_AVG_LAST_30_DAYS,
-                format_duration(stats.avg_per_day_last_30_days),
+                fmt(stats.avg_per_day_last_30_days),
             )
         )
 
@@ -219,19 +259,19 @@ class HtmlExporter:
         rows.append(
             StatsRow(
                 Constants.PERIOD_AVG_LAST_12_MONTHS,
-                format_duration(stats.avg_per_day_last_12_months),
+                fmt(stats.avg_per_day_last_12_months),
             )
         )
         rows.append(
             StatsRow(
                 Constants.PERIOD_AVG_THIS_YEAR,
-                format_duration(stats.avg_per_day_this_year),
+                fmt(stats.avg_per_day_this_year),
             )
         )
         rows.append(
             StatsRow(
                 Constants.PERIOD_AVG_LAST_YEAR,
-                format_duration(stats.avg_per_day_last_year),
+                fmt(stats.avg_per_day_last_year),
             )
         )
 
@@ -239,13 +279,13 @@ class HtmlExporter:
         rows.append(StatsRow("", "", is_separator=True))
 
         # Standard periods
-        rows.append(StatsRow(Constants.PERIOD_THIS_WEEK, format_duration(stats.this_week)))
-        rows.append(StatsRow(Constants.PERIOD_THIS_MONTH, format_duration(stats.this_month)))
-        rows.append(StatsRow(Constants.PERIOD_LAST_MONTH, format_duration(stats.last_month)))
+        rows.append(StatsRow(Constants.PERIOD_THIS_WEEK, fmt(stats.this_week)))
+        rows.append(StatsRow(Constants.PERIOD_THIS_MONTH, fmt(stats.this_month)))
+        rows.append(StatsRow(Constants.PERIOD_LAST_MONTH, fmt(stats.last_month)))
         rows.append(
-            StatsRow(Constants.PERIOD_LAST_12_MONTHS, format_duration(stats.last_12_months))
+            StatsRow(Constants.PERIOD_LAST_12_MONTHS, fmt(stats.last_12_months))
         )
-        rows.append(StatsRow(Constants.PERIOD_TOTAL, format_duration(stats.total)))
+        rows.append(StatsRow(Constants.PERIOD_TOTAL, fmt(stats.total)))
 
         return rows
 

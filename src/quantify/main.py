@@ -10,12 +10,37 @@ from quantify.cli.menu import Menu
 from quantify.config.config_writer import ConfigWriter
 from quantify.config.constants import Constants
 from quantify.config.settings import ConfigError, Settings
-from quantify.db.connection import Database, DatabaseError
-from quantify.db.repositories.datapoints import DataPointsRepository
-from quantify.db.repositories.features import FeaturesRepository
-from quantify.db.repositories.groups import GroupsRepository
 from quantify.export.html_exporter import HtmlExporter
-from quantify.services.stats import StatsService
+from quantify.sources.hometrainer import HometrainerSource
+from quantify.sources.registry import SourceRegistry
+from quantify.sources.track_and_graph import TrackAndGraphSource
+
+
+def _create_source_registry(settings: Settings) -> SourceRegistry:
+    """Create and populate source registry from settings.
+
+    Args:
+        settings: Application settings.
+
+    Returns:
+        SourceRegistry with all configured sources.
+    """
+    registry = SourceRegistry()
+
+    # Register Track & Graph source
+    if settings.sources.track_and_graph:
+        tg_source = TrackAndGraphSource(settings.sources.track_and_graph.db_path)
+        registry.register(tg_source)
+
+    # Register Hometrainer source
+    if settings.sources.hometrainer:
+        ht_source = HometrainerSource(
+            settings.sources.hometrainer.logs_path,
+            settings.sources.hometrainer.unit,
+        )
+        registry.register(ht_source)
+
+    return registry
 
 
 def main() -> int:
@@ -32,24 +57,19 @@ def main() -> int:
         console.print(f"[red]Configuration error: {e}[/red]")
         return 1
 
-    try:
-        db = Database(settings.db_path)
-    except DatabaseError as e:
-        console.print(f"[red]Database error: {e}[/red]")
+    registry = _create_source_registry(settings)
+
+    if not registry.get_configured_sources():
+        console.print(f"[red]{Constants.SOURCE_NO_CONFIGURED}[/red]")
         return 1
 
     try:
-        groups_repo = GroupsRepository(db)
-        features_repo = FeaturesRepository(db)
-        datapoints_repo = DataPointsRepository(db)
-        stats_service = StatsService(datapoints_repo, features_repo)
-
-        menu = Menu(groups_repo, features_repo, stats_service)
+        menu = Menu(registry)
         menu.run()
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled.[/yellow]")
     finally:
-        db.close()
+        registry.close_all()
 
     return 0
 
@@ -69,23 +89,20 @@ def export_config() -> int:
         console.print(f"[red]Configuration error: {e}[/red]")
         return 1
 
-    try:
-        db = Database(settings.db_path)
-    except DatabaseError as e:
-        console.print(f"[red]Database error: {e}[/red]")
+    registry = _create_source_registry(settings)
+
+    if not registry.get_configured_sources():
+        console.print(f"[red]{Constants.SOURCE_NO_CONFIGURED}[/red]")
         return 1
 
     try:
-        groups_repo = GroupsRepository(db)
-        features_repo = FeaturesRepository(db)
         config_writer = ConfigWriter(base_dir / Constants.CONFIG_FILE_NAME)
-
-        menu = ExportConfigMenu(groups_repo, features_repo, config_writer)
+        menu = ExportConfigMenu(registry, config_writer)
         menu.run()
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled.[/yellow]")
     finally:
-        db.close()
+        registry.close_all()
 
     return 0
 
@@ -113,37 +130,32 @@ def export() -> int:
         console.print(f"[yellow]{Constants.EXPORT_NO_PATH}[/yellow]")
         return 1
 
-    if not settings.export.groups and not settings.export.features:
+    if not settings.export.entries:
         console.print(f"[yellow]{Constants.EXPORT_NO_ENTRIES}[/yellow]")
         return 1
 
-    try:
-        db = Database(settings.db_path)
-    except DatabaseError as e:
-        console.print(f"[red]Database error: {e}[/red]")
+    registry = _create_source_registry(settings)
+
+    if not registry.get_configured_sources():
+        console.print(f"[red]{Constants.SOURCE_NO_CONFIGURED}[/red]")
         return 1
 
     try:
-        groups_repo = GroupsRepository(db)
-        features_repo = FeaturesRepository(db)
-        datapoints_repo = DataPointsRepository(db)
-        stats_service = StatsService(datapoints_repo, features_repo)
-
         exporter = HtmlExporter(
-            stats_service=stats_service,
-            groups_repo=groups_repo,
-            features_repo=features_repo,
+            registry=registry,
             templates_dir=base_dir / "templates",
             static_dir=base_dir / "static",
         )
 
         generated_files = exporter.export(settings.export)
-        msg = Constants.EXPORT_SUCCESS.format(count=len(generated_files), path=settings.export.path)
+        msg = Constants.EXPORT_SUCCESS.format(
+            count=len(generated_files), path=settings.export.path
+        )
         console.print(f"[green]{msg}[/green]")
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled.[/yellow]")
     finally:
-        db.close()
+        registry.close_all()
 
     return 0
 

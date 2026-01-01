@@ -38,11 +38,13 @@
             </div>
 
             <div class="card">
-                <h2>Time by Period</h2>
+                <h2>{{ unit_label }} by Period</h2>
                 <div class="chart-container"
                      id="stats-chart"
                      data-labels='{{ chart_labels | tojson }}'
-                     data-values='{{ chart_values | tojson }}'>
+                     data-values='{{ chart_values | tojson }}'
+                     data-unit='{{ unit }}'
+                     data-unit-label='{{ unit_label }}'>
                     <canvas id="stats-chart-canvas"></canvas>
                 </div>
             </div>

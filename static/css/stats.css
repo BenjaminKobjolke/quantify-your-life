@@ -112,6 +112,36 @@ h1 {
     margin-top: 1rem;
 }
 
+/* Index page */
+.index-card {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.stats-list {
+    list-style: none;
+}
+
+.stats-list li {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.stats-list li:last-child {
+    border-bottom: none;
+}
+
+.stats-list a {
+    color: var(--accent-cyan);
+    text-decoration: none;
+    display: block;
+    transition: color 0.2s;
+}
+
+.stats-list a:hover {
+    color: var(--accent-green);
+}
+
 /* Footer */
 .footer {
     text-align: center;

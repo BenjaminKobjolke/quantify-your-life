@@ -1,8 +1,19 @@
 {
-    "db_path": "C:/path/to/your/track_and_graph.db",
+    "sources": {
+        "track_and_graph": {
+            "db_path": "C:/path/to/your/track_and_graph.db"
+        },
+        "hometrainer": {
+            "logs_path": "C:/path/to/Hometrainer_Logs",
+            "unit": "km"
+        }
+    },
     "export": {
         "path": "C:/path/to/export/folder",
-        "groups": [],
-        "features": []
+        "entries": [
+            {"source": "track_and_graph", "type": "group", "id": 1},
+            {"source": "track_and_graph", "type": "feature", "id": 10},
+            {"source": "hometrainer", "type": "stats", "id": null}
+        ]
     }
 }

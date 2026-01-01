@@ -1,19 +1,30 @@
 # Quantify Your Life
 
-CLI tool to view time statistics from the [Track & Graph](https://github.com/SamAmco/track-and-graph) Android app database.
+CLI tool to view statistics from multiple data sources, including the [Track & Graph](https://github.com/SamAmco/track-and-graph) Android app and Hometrainer exercise logs.
 
-## About Track & Graph
+## Supported Data Sources
 
-This tool reads the SQLite database exported from [Track & Graph](https://github.com/SamAmco/track-and-graph), a free and open-source Android app for tracking and visualizing personal data. Track & Graph allows you to log various metrics (time, counts, values) and create custom graphs to analyze your habits and patterns.
+### Track & Graph
 
-**Quantify Your Life** provides a quick CLI interface to view aggregated time statistics without needing to open the app.
+Reads the SQLite database exported from [Track & Graph](https://github.com/SamAmco/track-and-graph), a free and open-source Android app for tracking and visualizing personal data. Track & Graph allows you to log various metrics (time, counts, values) and create custom graphs to analyze your habits and patterns.
+
+### Hometrainer
+
+Reads daily exercise logs stored as text files. Each file contains a single distance value (in miles) for that day.
+
+**Log format:**
+- Location: `{logs_path}/{YYYY}/{YYYY_MM_DD}.txt`
+- Content: Single float value (e.g., `5.2`)
+- Example: `Hometrainer_Logs/2024/2024_01_15.txt` containing `8.5`
 
 ## Features
 
+- **Multiple data sources** - Track & Graph database and Hometrainer logs
 - View statistics by **Group** (aggregated) or **Feature** (individual tracker)
 - Arrow key navigation for easy selection
-- **HTML Export** with charts for configured groups/features
-- Comprehensive time statistics:
+- **HTML Export** with charts for configured entries
+- **Unit support** - Time (hours/minutes) and distance (km/mi)
+- Comprehensive statistics:
   - Last 7 days / Last 31 days
   - Average per day (last 30 days, last 12 months, this year, last year)
   - Trend comparison vs previous 30 days
@@ -28,17 +39,32 @@ This tool reads the SQLite database exported from [Track & Graph](https://github
 
 1. Clone the repository
 
-2. Copy the example config and set your database path:
+2. Copy the example config and configure your data sources:
    ```bash
    cp config_example.json config.json
    ```
 
-3. Edit `config.json` with your Track & Graph database path:
+3. Edit `config.json` with your data source paths:
    ```json
    {
-       "db_path": "C:/path/to/your/track_and_graph.db"
+       "sources": {
+           "track_and_graph": {
+               "db_path": "C:/path/to/your/track_and_graph.db"
+           },
+           "hometrainer": {
+               "logs_path": "C:/path/to/Hometrainer_Logs",
+               "unit": "km"
+           }
+       }
    }
    ```
+
+   **Configuration options:**
+   - `sources.track_and_graph.db_path` - Path to Track & Graph SQLite database
+   - `sources.hometrainer.logs_path` - Path to Hometrainer logs directory
+   - `sources.hometrainer.unit` - Display unit: `"km"` (default) or `"mi"`
+
+   Only configure the sources you want to use. Unconfigured sources are ignored.
 
 4. Install dependencies:
    ```bash
@@ -59,6 +85,13 @@ uv run quantify
 uv run quantify
 ```
 
+If multiple sources are configured, you'll be prompted to select one:
+```
+? Select data source:
+> Track & Graph
+  Hometrainer
+```
+
 ### HTML Export
 
 Export statistics to HTML files with interactive charts.
@@ -71,9 +104,23 @@ uv run quantify-export-config
 ```
 
 This opens an interactive menu where you can:
-- **Add entry** - Select groups or features to export
+- **Add entry** - Select source, then groups/features to export
 - **Remove entry** - Remove items from export list
 - **Set export path** - Configure where HTML files are saved
+
+Export configuration is stored in `config.json`:
+```json
+{
+    "export": {
+        "path": "C:/path/to/export/folder",
+        "entries": [
+            {"source": "track_and_graph", "type": "group", "id": 1},
+            {"source": "track_and_graph", "type": "feature", "id": 10},
+            {"source": "hometrainer", "type": "stats", "id": null}
+        ]
+    }
+}
+```
 
 #### 2. Run Export
 
@@ -89,13 +136,16 @@ This generates HTML files with:
 
 ## Example Output
 
+### Track & Graph (Time)
+
 ```
+? Select data source: Track & Graph
 ? How would you like to view statistics? By Feature
 ? Select a feature: Exercise
 
         Statistics for: Exercise
 ┌─────────────────────────────┬──────────┐
-│ Period                      │     Time │
+│ Period                      │    Value │
 ├─────────────────────────────┼──────────┤
 │ Last 7 days                 │   5h 23m │
 │ Last 31 days                │  22h 15m │
@@ -115,6 +165,36 @@ This generates HTML files with:
 └─────────────────────────────┴──────────┘
 ```
 
+### Hometrainer (Distance)
+
+```
+? Select data source: Hometrainer
+
+     Statistics for: Hometrainer (km)
+┌─────────────────────────────┬──────────┐
+│ Period                      │    Value │
+├─────────────────────────────┼──────────┤
+│ Last 7 days                 │  42.5 km │
+│ Last 31 days                │ 185.2 km │
+│                             │          │
+│ Avg/day (last 30 days)      │   6.2 km │
+│ vs previous 30 days         │   +8.3%  │
+│                             │          │
+│ ...                         │      ... │
+└─────────────────────────────┴──────────┘
+```
+
+## Backwards Compatibility
+
+The old config format with `db_path` at the root level is still supported:
+```json
+{
+    "db_path": "C:/path/to/track_and_graph.db"
+}
+```
+
+This is automatically converted to the new format internally.
+
 ## Development
 
 ### Run linting
@@ -131,6 +211,14 @@ uv run mypy src/
 ```bash
 uv run pytest
 ```
+
+### Adding a New Data Source
+
+1. Create a new package under `src/quantify/sources/`
+2. Implement `DataSource` abstract class from `sources/base.py`
+3. Implement `DataProvider` protocol for your data format
+4. Add configuration dataclass to `config/settings.py`
+5. Register in `main.py`'s `_create_source_registry()`
 
 ## License
 

@@ -72,3 +72,13 @@ class Constants:
     # Export labels
     EXPORT_LABEL_GROUP: str = "Group: {name} (ID {id})"
     EXPORT_LABEL_FEATURE: str = "Feature: {name} (ID {id})"
+    EXPORT_LABEL_STATS: str = "{source}: {name}"
+
+    # Source selection
+    SOURCE_SELECT_TITLE: str = "Select data source:"
+    SOURCE_NO_CONFIGURED: str = "No data sources are configured"
+    SOURCE_TRACK_AND_GRAPH: str = "Track & Graph"
+    SOURCE_HOMETRAINER: str = "Hometrainer"
+
+    # Hometrainer
+    HOMETRAINER_STATS_NAME: str = "Hometrainer"
