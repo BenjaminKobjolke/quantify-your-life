@@ -1,21 +1,18 @@
 """Git statistics data source."""
 
-from collections.abc import Iterator
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TaskID,
-    TextColumn,
-)
 
+if TYPE_CHECKING:
+    from rich.progress import Progress, TaskID
+
+from quantify.config.settings import DEFAULT_PROJECT_TYPES
 from quantify.services.stats_calculator import StatsCalculator, TimeStats
 from quantify.sources.base import DataProvider, DataSource, SelectableItem, SourceInfo
 from quantify.sources.git_stats.data_provider import (
@@ -23,11 +20,17 @@ from quantify.sources.git_stats.data_provider import (
     ProjectsCreatedDataProvider,
 )
 from quantify.sources.git_stats.git_log_parser import GitLogParser
+from quantify.sources.git_stats.progress import ProgressMixin
+from quantify.sources.git_stats.project_type_detector import (
+    detect_project_type,
+    get_matching_types,
+    get_project_type_config,
+)
 from quantify.sources.git_stats.repo_scanner import RepoScanner
 from quantify.sources.git_stats.stats_cache import GitStatsCache
 
 
-class GitStatsSource(DataSource):
+class GitStatsSource(ProgressMixin, DataSource):
     """Data source for git line statistics across repositories."""
 
     # Stat type constants
@@ -64,7 +67,8 @@ class GitStatsSource(DataSource):
         self._exclude_extensions = exclude_extensions
         self._exclude_filenames = exclude_filenames
         self._repos: list[Path] | None = None
-        self._parser: GitLogParser | None = None
+        self._parser: GitLogParser | None = None  # Default parser (no project type)
+        self._parsers: dict[str, GitLogParser] = {}  # Parsers by project type
         self._cache: GitStatsCache | None = None
         self._console = Console()
         self._progress: Progress | None = None
@@ -192,57 +196,6 @@ class GitStatsSource(DataSource):
             cache_path = self.CACHE_DIR / self.CACHE_DB_NAME
             self._cache = GitStatsCache(cache_path)
 
-    @contextmanager
-    def _progress_context(
-        self,
-        description: str,
-        total: int | None = None,
-    ) -> Iterator[Progress]:
-        """Create a unified progress display context.
-
-        Displays single line: [spinner] status [bar] X/Y
-
-        Args:
-            description: Initial status text.
-            total: Total count for progress bar, or None for indeterminate.
-
-        Yields:
-            Progress instance for updates.
-        """
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("{task.fields[status]}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            console=self._console,
-            transient=False,
-        ) as progress:
-            self._progress = progress
-            self._task_id = progress.add_task("", total=total, status=description)
-            try:
-                yield progress
-            finally:
-                self._progress = None
-                self._task_id = None
-
-    def _on_progress(self, repo_name: str, current: int, total: int) -> None:
-        """Callback for progress updates during data provider operations.
-
-        Args:
-            repo_name: Name of the repository currently being processed.
-            current: Current repository index (1-based).
-            total: Total number of repositories.
-        """
-        if self._progress is None or self._task_id is None:
-            return
-
-        self._progress.update(
-            self._task_id,
-            total=total,
-            completed=current,
-            status=f"Scanning: {repo_name}",
-        )
-
     def get_repos(self) -> list[Path]:
         """Get list of discovered repositories.
 
@@ -339,3 +292,262 @@ class GitStatsSource(DataSource):
         # Sort by net lines descending and limit
         repo_stats.sort(key=lambda x: x[1], reverse=True)
         return repo_stats[:limit]
+
+    def get_projects_created_in_period(
+        self,
+        start_date: date | None,
+        end_date: date,
+    ) -> list[tuple[Path, date]]:
+        """Get repositories created (first commit) within a date range.
+
+        Args:
+            start_date: First day to include (None for no lower bound).
+            end_date: Last day to include.
+
+        Returns:
+            List of (repo_path, creation_date) tuples sorted by date ascending.
+        """
+        self._ensure_initialized()
+        assert self._repos is not None
+        assert self._parser is not None
+
+        results: list[tuple[Path, date]] = []
+
+        def check_repo(repo: Path) -> tuple[Path, date] | None:
+            first_commit = self._parser.get_first_commit_date(repo)
+            if first_commit is None:
+                return None
+            if start_date is not None and first_commit < start_date:
+                return None
+            if first_commit > end_date:
+                return None
+            return (repo, first_commit)
+
+        total_repos = len(self._repos)
+        with (
+            self._progress_context(
+                "Finding created projects...", total=total_repos
+            ) as progress,
+            ThreadPoolExecutor(max_workers=8) as executor,
+        ):
+            futures = {
+                executor.submit(check_repo, repo): repo for repo in self._repos
+            }
+
+            for future in as_completed(futures):
+                repo = futures[future]
+                progress.update(self._task_id, status=f"Checked: {repo.name}")
+                progress.advance(self._task_id)
+                result = future.result()
+                if result is not None:
+                    results.append(result)
+
+        # Sort by creation date ascending (oldest first)
+        results.sort(key=lambda x: x[1])
+        return results
+
+    def get_commits_by_repo_in_period(
+        self,
+        start_date: date | None,
+        end_date: date,
+    ) -> list[tuple[Path, int]]:
+        """Get commit counts per repository for a date range.
+
+        Args:
+            start_date: First day to include (None for no lower bound).
+            end_date: Last day to include.
+
+        Returns:
+            List of (repo_path, commit_count) tuples sorted by count descending.
+            Only includes repos with at least 1 commit.
+        """
+        self._ensure_initialized()
+        assert self._repos is not None
+        assert self._parser is not None
+        assert self._cache is not None
+
+        results: list[tuple[Path, int]] = []
+
+        def get_repo_commits(repo: Path) -> tuple[Path, int]:
+            if start_date is None:
+                # Unbounded query - use parser directly
+                stats = self._parser.get_stats(repo, start_date, end_date)
+                return (repo, stats.commits)
+            else:
+                # Use cache (create provider without progress callback)
+                provider = GitStatsDataProvider(
+                    [repo],
+                    self._parser,
+                    self.STAT_COMMITS,
+                    self._cache,
+                )
+                return (repo, int(provider.get_sum(start_date, end_date)))
+
+        total_repos = len(self._repos)
+        with (
+            self._progress_context(
+                "Counting commits...", total=total_repos
+            ) as progress,
+            ThreadPoolExecutor(max_workers=8) as executor,
+        ):
+            futures = {
+                executor.submit(get_repo_commits, repo): repo for repo in self._repos
+            }
+
+            for future in as_completed(futures):
+                repo = futures[future]
+                progress.update(self._task_id, status=f"Analyzed: {repo.name}")
+                progress.advance(self._task_id)
+                repo_path, commit_count = future.result()
+                if commit_count > 0:
+                    results.append((repo_path, commit_count))
+
+        # Sort by commit count descending
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results
+
+    def clear_repo_cache(self, repo_path: Path) -> None:
+        """Clear all cached data for a repository."""
+        self._ensure_initialized()
+        assert self._cache is not None
+        self._cache.clear_repo(repo_path)
+
+    # Project type management methods
+
+    def get_project_type(self, repo_path: Path) -> tuple[str, str] | None:
+        """Get stored project type for a repository.
+
+        Args:
+            repo_path: Path to the git repository.
+
+        Returns:
+            Tuple of (project_type, type_source) or None if not stored.
+            type_source is "auto" or "user".
+        """
+        self._ensure_initialized()
+        assert self._cache is not None
+        return self._cache.get_project_type(repo_path)
+
+    def set_project_type(
+        self, repo_path: Path, project_type: str, type_source: str = "user"
+    ) -> None:
+        """Store project type for a repository and clear its cache.
+
+        Clears the cache because stats need recalculation with new rules.
+
+        Args:
+            repo_path: Path to the git repository.
+            project_type: The project type name (e.g., "unity", "flutter").
+            type_source: Either "auto" (detected) or "user" (manually set).
+        """
+        self._ensure_initialized()
+        assert self._cache is not None
+        self._cache.set_project_type(repo_path, project_type, type_source)
+        self._cache.clear_repo(repo_path)  # Invalidate cache
+
+    def detect_and_store_project_type(self, repo_path: Path) -> str:
+        """Detect project type for a repo and store it.
+
+        If type cannot be detected, returns status string for caller to handle.
+
+        Args:
+            repo_path: Path to the git repository.
+
+        Returns:
+            Detected project type name if successful.
+            "ambiguous" if multiple types match (caller should show options).
+            "unknown" if no types match (caller should prompt for type).
+        """
+        self._ensure_initialized()
+        detected = detect_project_type(repo_path)
+        if detected is not None:
+            self.set_project_type(repo_path, detected, "auto")
+            return detected
+
+        # Check if it's ambiguous (multiple matches) or unknown (no matches)
+        matching = get_matching_types(repo_path)
+        if matching:
+            return "ambiguous"
+        return "unknown"
+
+    def get_matching_project_types(self, repo_path: Path) -> list[str]:
+        """Get all project types that match a repository.
+
+        Use this when detect_project_type returns None (ambiguous).
+
+        Args:
+            repo_path: Path to the git repository.
+
+        Returns:
+            List of matching project type names.
+        """
+        return get_matching_types(repo_path)
+
+    def get_all_project_types(self) -> list[tuple[str, str, str, str]]:
+        """Get all stored project types.
+
+        Returns:
+            List of (repo_path, project_type, type_source, detected_at) tuples.
+        """
+        self._ensure_initialized()
+        assert self._cache is not None
+        return self._cache.get_all_project_types()
+
+    def get_available_project_types(self) -> list[str]:
+        """Get list of all available project type names.
+
+        Returns:
+            List of project type names (e.g., ["unity", "flutter", ...]).
+        """
+        return list(DEFAULT_PROJECT_TYPES.keys())
+
+    def get_parser_for_project_type(self, project_type: str | None) -> GitLogParser:
+        """Get or create a parser for a specific project type.
+
+        Args:
+            project_type: Project type name, or None for default parser.
+
+        Returns:
+            GitLogParser configured for the project type.
+        """
+        self._ensure_initialized()
+
+        if project_type is None:
+            assert self._parser is not None
+            return self._parser
+
+        if project_type not in self._parsers:
+            config = get_project_type_config(project_type)
+            self._parsers[project_type] = GitLogParser(
+                self._author,
+                list(self._exclude_dirs),
+                list(self._exclude_extensions),
+                list(self._exclude_filenames),
+                project_type_config=config,
+            )
+
+        return self._parsers[project_type]
+
+    def analyze_exclusions_for_repo(self, repo_path: Path) -> dict[str, object]:
+        """Analyze exclusions using repo's project type config.
+
+        Args:
+            repo_path: Path to the git repository.
+
+        Returns:
+            Dictionary with exclusion analysis including project type info.
+        """
+        self._ensure_initialized()
+
+        # Get stored project type or detect it
+        stored = self.get_project_type(repo_path)
+        if stored:
+            project_type = stored[0]
+        else:
+            # Try to detect
+            detected = detect_project_type(repo_path)
+            project_type = detected if detected else "generic"
+
+        # Get parser for this project type
+        parser = self.get_parser_for_project_type(project_type)
+        return parser.analyze_exclusions(repo_path)

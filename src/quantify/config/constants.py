@@ -27,6 +27,9 @@ class Constants:
     PERIOD_LAST_MONTH: str = "Last month"
     PERIOD_LAST_12_MONTHS: str = "Last 12 months"
     PERIOD_TOTAL: str = "Total"
+    PERIOD_TOTAL_THIS_YEAR: str = "This year ({year})"
+    PERIOD_TOTAL_LAST_YEAR: str = "Last year ({year})"
+    PERIOD_TOTAL_YEAR_BEFORE: str = "Year before ({year})"
 
     # Output labels
     LABEL_STATISTICS_FOR: str = "Statistics for"
@@ -96,7 +99,15 @@ class Constants:
     GIT_PERIOD_LAST_7_DAYS: str = "Last 7 days"
     GIT_PERIOD_LAST_30_DAYS: str = "Last 30 days"
     GIT_PERIOD_LAST_12_MONTHS: str = "Last 12 months"
+    GIT_PERIOD_THIS_YEAR: str = "This year ({year})"
+    GIT_PERIOD_LAST_YEAR: str = "Last year ({year})"
+    GIT_PERIOD_YEAR_BEFORE: str = "Year before ({year})"
     GIT_PERIOD_ALL_TIME: str = "All time"
+
+    # Stat details
+    GIT_SHOW_DETAILS: str = "Show details?"
+    GIT_NO_PROJECTS_FOUND: str = "No projects created in this period"
+    GIT_NO_COMMITS_FOUND: str = "No commits found in this period"
 
     # Debug menu
     DEBUG_SELECT_REPO: str = "Select a repository to analyze:"
@@ -105,7 +116,30 @@ class Constants:
     DEBUG_EXCLUDED_DIR: str = "Excluded by directory"
     DEBUG_EXCLUDED_EXT: str = "Excluded by extension"
     DEBUG_EXCLUDED_NAME: str = "Excluded by filename"
+    DEBUG_EXCLUDED_PATTERN: str = "Excluded by include pattern"
     DEBUG_INCLUDED: str = "Files to be counted"
+    DEBUG_PROJECT_TYPE: str = "Project type"
+
+    # Project Types menu
+    MENU_PROJECT_TYPES: str = "Manage Project Types"
+    PROJECT_TYPE_TITLE: str = "Project Types - What would you like to do?"
+    PROJECT_TYPE_LIST: str = "List all stored types"
+    PROJECT_TYPE_SET: str = "Set type for a repository"
+    PROJECT_TYPE_DETECT: str = "Detect type for a repository"
+    PROJECT_TYPE_DETECT_ALL: str = "Re-detect all repositories"
+    PROJECT_TYPE_SELECT_REPO: str = "Select a repository:"
+    PROJECT_TYPE_SELECT_TYPE: str = "Select project type:"
+    PROJECT_TYPE_NONE: str = "(none)"
+    PROJECT_TYPE_STORED: str = "Stored"
+    PROJECT_TYPE_DETECTED: str = "Detected"
+    PROJECT_TYPE_AMBIGUOUS: str = "Ambiguous - multiple types match"
+    PROJECT_TYPE_SET_SUCCESS: str = "Set {repo} to type '{type}'"
+    PROJECT_TYPE_DETECTED_SUCCESS: str = "Detected {repo} as type '{type}'"
+    PROJECT_TYPE_NO_STORED: str = "No project types stored yet"
+
+    # Debug Export
+    DEBUG_LOG_EXPORTED: str = "Log exported to: {path}"
+    DEBUG_OPEN_LOG: str = "Open log file?"
 
     # Logging
     LOG_DIR_NAME: str = "logs"
