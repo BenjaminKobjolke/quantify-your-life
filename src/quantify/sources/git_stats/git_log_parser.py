@@ -1,11 +1,14 @@
 """Parses git log output to extract line statistics."""
 
+import fnmatch
 import logging
 import subprocess
 import threading
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+
+from quantify.config.settings import ProjectTypeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,21 +36,32 @@ class GitLogParser:
         exclude_dirs: list[str],
         exclude_extensions: list[str],
         exclude_filenames: list[str],
+        project_type_config: ProjectTypeConfig | None = None,
     ) -> None:
         """Initialize parser with filtering options.
 
         Args:
             author: Git author name to filter commits.
-            exclude_dirs: Directory names to exclude.
-            exclude_extensions: File extensions to exclude.
-            exclude_filenames: Specific filenames to exclude.
+            exclude_dirs: Directory names to exclude (global).
+            exclude_extensions: File extensions to exclude (global).
+            exclude_filenames: Specific filenames to exclude (global).
+            project_type_config: Optional project type configuration for
+                type-specific filtering (include patterns, extra excludes).
         """
         self._author = author
         self._exclude_dirs = set(exclude_dirs)
         self._exclude_extensions = set(exclude_extensions)
         self._exclude_filenames = set(exclude_filenames)
+        self._project_type_config = project_type_config
         self._failed_repos: set[Path] = set()  # Cache repos that failed
         self._lock = threading.Lock()  # Thread safety for _failed_repos
+
+        # Merge project type exclusions
+        if project_type_config:
+            self._exclude_dirs = self._exclude_dirs | set(project_type_config.exclude_dirs)
+            self._exclude_extensions = self._exclude_extensions | set(
+                project_type_config.exclude_extensions
+            )
 
     def get_stats(
         self,
@@ -75,7 +89,12 @@ class GitLogParser:
             return self._parse_numstat(output)
         except subprocess.CalledProcessError as e:
             stderr_msg = e.stderr.strip() if e.stderr else "unknown error"
-            logger.warning(f"Git error in {repo_path.name}: {stderr_msg}")
+            cmd_str = " ".join(e.cmd) if e.cmd else "unknown command"
+            logger.warning(
+                f"Git error in {repo_path.name}: {stderr_msg}\n"
+                f"  Command: {cmd_str}\n"
+                f"  Exit code: {e.returncode}"
+            )
             with self._lock:
                 self._failed_repos.add(repo_path)
             return GitStats(added=0, removed=0, commits=0)
@@ -184,6 +203,10 @@ class GitLogParser:
     def _should_exclude(self, filepath: str) -> bool:
         """Check if a file should be excluded based on filters.
 
+        For project types with include_patterns, files must match at least
+        one pattern to be included. For other types, standard exclusion
+        rules apply.
+
         Args:
             filepath: Path to the file (relative to repo root).
 
@@ -203,7 +226,36 @@ class GitLogParser:
 
         # Check extension (handle multi-part extensions like .g.dart)
         name = path.name
-        return any(name.endswith(ext) for ext in self._exclude_extensions)
+        if any(name.endswith(ext) for ext in self._exclude_extensions):
+            return True
+
+        # If project type has include patterns, file must match at least one
+        return bool(
+            self._project_type_config
+            and self._project_type_config.include_patterns
+            and not self._matches_include_pattern(filepath)
+        )
+
+    def _matches_include_pattern(self, filepath: str) -> bool:
+        """Check if a file matches any include pattern.
+
+        Args:
+            filepath: Path to the file (relative to repo root).
+
+        Returns:
+            True if the file matches at least one include pattern.
+        """
+        if not self._project_type_config:
+            return True
+
+        # Normalize path separators for consistent matching
+        normalized = filepath.replace("\\", "/")
+
+        for pattern in self._project_type_config.include_patterns:
+            if fnmatch.fnmatch(normalized, pattern):
+                return True
+
+        return False
 
     def get_daily_stats(self, repo_path: Path, day: date) -> GitStats:
         """Get stats for a single day.
@@ -257,7 +309,7 @@ class GitLogParser:
         except (subprocess.SubprocessError, ValueError, FileNotFoundError):
             return None
 
-    def analyze_exclusions(self, repo_path: Path) -> dict:
+    def analyze_exclusions(self, repo_path: Path) -> dict[str, object]:
         """Analyze which files would be excluded and why.
 
         Args:
@@ -269,8 +321,14 @@ class GitLogParser:
             - excluded_by_dir: Count and examples excluded by directory
             - excluded_by_extension: Count and examples excluded by extension
             - excluded_by_filename: Count and examples excluded by filename
+            - excluded_by_include_pattern: Count and examples not matching include patterns
             - included_files: Count and examples of files to be counted
+            - project_type: Active project type name or None
         """
+        project_type_name = (
+            self._project_type_config.name if self._project_type_config else None
+        )
+
         try:
             cmd = ["git", "-C", str(repo_path), "ls-files"]
             result = subprocess.run(
@@ -285,24 +343,32 @@ class GitLogParser:
                     "excluded_by_dir": {"count": 0, "examples": []},
                     "excluded_by_extension": {"count": 0, "examples": []},
                     "excluded_by_filename": {"count": 0, "examples": []},
+                    "excluded_by_include_pattern": {"count": 0, "examples": []},
                     "included_files": {"count": 0, "examples": []},
+                    "project_type": project_type_name,
                 }
 
             files = [f for f in result.stdout.strip().split("\n") if f]
 
-            excluded_by_dir: list[str] = []
-            excluded_by_ext: list[str] = []
-            excluded_by_name: list[str] = []
+            # Track unique excluded directories/paths (not individual files)
+            excluded_dirs_set: set[str] = set()
+            excluded_ext_count = 0
+            excluded_ext_examples: list[str] = []
+            excluded_name_count = 0
+            excluded_name_examples: list[str] = []
+            excluded_pattern_dirs: set[str] = set()
             included: list[str] = []
 
             for filepath in files:
                 path = Path(filepath)
 
-                # Check directory exclusion
+                # Check directory exclusion - track the excluded directory path
                 dir_excluded = False
-                for part in path.parts:
+                for i, part in enumerate(path.parts):
                     if part in self._exclude_dirs:
-                        excluded_by_dir.append(filepath)
+                        # Build path up to and including the excluded dir
+                        excluded_path = "/".join(path.parts[: i + 1])
+                        excluded_dirs_set.add(excluded_path)
                         dir_excluded = True
                         break
 
@@ -311,36 +377,60 @@ class GitLogParser:
 
                 # Check filename exclusion
                 if path.name in self._exclude_filenames:
-                    excluded_by_name.append(filepath)
+                    excluded_name_count += 1
+                    if len(excluded_name_examples) < 5:
+                        excluded_name_examples.append(filepath)
                     continue
 
                 # Check extension exclusion
                 name = path.name
                 if any(name.endswith(ext) for ext in self._exclude_extensions):
-                    excluded_by_ext.append(filepath)
+                    excluded_ext_count += 1
+                    if len(excluded_ext_examples) < 5:
+                        excluded_ext_examples.append(filepath)
+                    continue
+
+                # Check include pattern (if project type has patterns)
+                if (
+                    self._project_type_config
+                    and self._project_type_config.include_patterns
+                    and not self._matches_include_pattern(filepath)
+                ):
+                    # Track parent directory of excluded file
+                    parent = "/".join(path.parts[:-1]) if len(path.parts) > 1 else "."
+                    excluded_pattern_dirs.add(parent)
                     continue
 
                 # File is included
                 included.append(filepath)
 
+            # Sort and prepare examples
+            excluded_dir_list = sorted(excluded_dirs_set)
+            excluded_pattern_list = sorted(excluded_pattern_dirs)
+
             return {
                 "total_tracked": len(files),
                 "excluded_by_dir": {
-                    "count": len(excluded_by_dir),
-                    "examples": excluded_by_dir[:5],
+                    "count": len(excluded_dir_list),
+                    "examples": excluded_dir_list[:10],
                 },
                 "excluded_by_extension": {
-                    "count": len(excluded_by_ext),
-                    "examples": excluded_by_ext[:5],
+                    "count": excluded_ext_count,
+                    "examples": excluded_ext_examples,
                 },
                 "excluded_by_filename": {
-                    "count": len(excluded_by_name),
-                    "examples": excluded_by_name[:5],
+                    "count": excluded_name_count,
+                    "examples": excluded_name_examples,
+                },
+                "excluded_by_include_pattern": {
+                    "count": len(excluded_pattern_list),
+                    "examples": excluded_pattern_list[:10],
                 },
                 "included_files": {
                     "count": len(included),
                     "examples": included[:5],
                 },
+                "project_type": project_type_name,
             }
         except (subprocess.SubprocessError, FileNotFoundError):
             return {
@@ -348,5 +438,7 @@ class GitLogParser:
                 "excluded_by_dir": {"count": 0, "examples": []},
                 "excluded_by_extension": {"count": 0, "examples": []},
                 "excluded_by_filename": {"count": 0, "examples": []},
+                "excluded_by_include_pattern": {"count": 0, "examples": []},
                 "included_files": {"count": 0, "examples": []},
+                "project_type": project_type_name,
             }
