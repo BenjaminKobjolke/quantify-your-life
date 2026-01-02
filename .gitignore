@@ -209,3 +209,5 @@ config.json
 .claude
 /DGITBenjaminKobjolkequantify-your-lifetest_config.json
 /nul
+PLAN.md
+code_analysis_results/

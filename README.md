@@ -17,9 +17,52 @@ Reads daily exercise logs stored as text files. Each file contains a single dist
 - Content: Single float value (e.g., `5.2`)
 - Example: `Hometrainer_Logs/2024/2024_01_15.txt` containing `8.5`
 
+### Git Stats
+
+Analyzes git repositories to track lines added, removed, and commits over time. Scans all repositories under configured root paths and caches results for fast subsequent queries.
+
+**Tracked metrics:**
+- Lines Added / Removed / Net
+- Commits
+- Projects Created (first commit date)
+
+**Default exclusions** (to focus on meaningful code changes):
+
+| Category | Excluded | Reason |
+|----------|----------|--------|
+| **Directories** | `node_modules`, `vendor`, `venv`, `.venv`, `target`, `build`, `dist`, `bin`, `obj` | Dependencies and build output |
+| | `Library`, `Temp`, `Logs` | Unity project cache |
+| | `.idea`, `.vscode`, `.vs` | IDE configuration |
+| | `__pycache__`, `.pytest_cache`, `.mypy_cache` | Python cache |
+| **Extensions** | `.json`, `.xml`, `.yaml`, `.yml`, `.toml` | Config files (often auto-generated) |
+| | `.md`, `.txt`, `.rst` | Documentation |
+| | `.css`, `.scss`, `.html` | Styling/markup |
+| | `.png`, `.jpg`, `.svg`, `.pdf` | Media assets |
+| | `.lock`, `.map` | Generated files |
+| | `.meta` | Unity metadata |
+| **Filenames** | `package-lock.json`, `yarn.lock`, `poetry.lock`, etc. | Lock files |
+| | `.gitignore`, `.editorconfig` | Config files |
+
+**Customizing exclusions** in `config.json`:
+```json
+{
+    "sources": {
+        "git_stats": {
+            "author": "Your Name",
+            "root_paths": ["D:/projects"],
+            "exclude_dirs": ["node_modules", "custom_dir"],
+            "exclude_extensions": [".json", ".custom"],
+            "exclude_filenames": ["package-lock.json"]
+        }
+    }
+}
+```
+
+Note: Custom lists replace the defaults entirely. Use the Debug Git Exclusions menu to see what files are being counted in each repository.
+
 ## Features
 
-- **Multiple data sources** - Track & Graph database and Hometrainer logs
+- **Multiple data sources** - Track & Graph, Hometrainer logs, and Git Stats
 - View statistics by **Group** (aggregated) or **Feature** (individual tracker)
 - Arrow key navigation for easy selection
 - **HTML Export** with charts for configured entries
@@ -219,6 +262,10 @@ uv run pytest
 3. Implement `DataProvider` protocol for your data format
 4. Add configuration dataclass to `config/settings.py`
 5. Register in `main.py`'s `_create_source_registry()`
+
+## Test SQL
+sqlite3 "C:\Users\USERNAME\.quantify-your-life\git_stats_cache.db" "SELECT repo_path, date, added, removed, commits FROM daily_stats WHERE repo_path LIKE '%quantify-your-life%' ORDER BY date DESC
+LIMIT 20"
 
 ## License
 
