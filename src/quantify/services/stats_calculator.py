@@ -79,18 +79,22 @@ class StatsCalculator:
         avg_last_30 = last_30_days / 30 if last_30_days else 0.0
         trend = self._calculate_trend(last_30_days, previous_30_days)
 
-        # Last 12 months
+        # Last 12 months (calculate actual days for leap year handling)
         last_12_months_sum = get_sum(ranges["12_months_ago"], ranges["today"])
-        avg_last_12_months = last_12_months_sum / 365 if last_12_months_sum else 0.0
+        days_last_12_months = (ranges["today"] - ranges["12_months_ago"]).days + 1
+        avg_last_12_months = (
+            last_12_months_sum / days_last_12_months if days_last_12_months > 0 else 0.0
+        )
 
         # This year
         this_year_sum = get_sum(ranges["year_start"], ranges["today"])
         days_this_year = (ranges["today"] - ranges["year_start"]).days + 1
         avg_this_year = this_year_sum / days_this_year if days_this_year > 0 else 0.0
 
-        # Last year
+        # Last year (calculate actual days for leap year handling)
         last_year_sum = get_sum(ranges["last_year_start"], ranges["last_year_end"])
-        avg_last_year = last_year_sum / 365 if last_year_sum else 0.0
+        days_last_year = (ranges["last_year_end"] - ranges["last_year_start"]).days + 1
+        avg_last_year = last_year_sum / days_last_year if days_last_year > 0 else 0.0
 
         # Standard periods
         this_week = get_sum(ranges["week_start"], ranges["today"])

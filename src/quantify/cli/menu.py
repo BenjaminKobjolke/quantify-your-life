@@ -49,41 +49,50 @@ def format_distance(value: float, unit: str) -> str:
     return f"{value:.1f} {unit}"
 
 
-def format_lines(value: float) -> str:
+def format_lines(value: float, is_avg: bool = False) -> str:
     """Format line count with thousands separator.
 
     Args:
         value: Number of lines.
+        is_avg: If True, show 1 decimal place for averages.
 
     Returns:
-        Formatted string like "1,234 lines".
+        Formatted string like "1,234 lines" or "0.9 lines".
     """
+    if is_avg:
+        return f"{value:,.1f} lines"
     return f"{int(value):,} lines"
 
 
-def format_commits(value: float) -> str:
+def format_commits(value: float, is_avg: bool = False) -> str:
     """Format commit count.
 
     Args:
         value: Number of commits.
+        is_avg: If True, show 1 decimal place for averages.
 
     Returns:
-        Formatted string like "1,234 commits".
+        Formatted string like "1,234 commits" or "0.9 commits".
     """
+    if is_avg:
+        return f"{value:,.1f} commits"
     count = int(value)
     suffix = "commit" if count == 1 else "commits"
     return f"{count:,} {suffix}"
 
 
-def format_projects(value: float) -> str:
+def format_projects(value: float, is_avg: bool = False) -> str:
     """Format project count.
 
     Args:
         value: Number of projects.
+        is_avg: If True, show 1 decimal place for averages.
 
     Returns:
-        Formatted string like "15 projects".
+        Formatted string like "15 projects" or "1.5 projects".
     """
+    if is_avg:
+        return f"{value:,.1f} projects"
     count = int(value)
     suffix = "project" if count == 1 else "projects"
     return f"{count:,} {suffix}"
@@ -125,21 +134,24 @@ class Menu:
             self._console.print(f"[red]{Constants.SOURCE_NO_CONFIGURED}[/red]")
             return
 
-        # Select source (auto-select if only one)
-        source = self._select_source(sources)
-        if source is None:
-            return
+        # Main menu loop - back from handlers returns here
+        while True:
+            # Select source (auto-select if only one)
+            source = self._select_source(sources)
+            if source is None:
+                return  # Exit only when user cancels source selection
 
-        # Handle source-specific flow
-        if isinstance(source, TrackAndGraphSource):
-            self._handle_track_and_graph(source)
-        elif isinstance(source, HometrainerSource):
-            self._handle_hometrainer(source)
-        elif isinstance(source, GitStatsSource):
-            self._handle_git_stats(source)
-        else:
-            # Generic handling for future sources
-            self._handle_generic_source(source)
+            # Handle source-specific flow
+            if isinstance(source, TrackAndGraphSource):
+                self._handle_track_and_graph(source)
+            elif isinstance(source, HometrainerSource):
+                self._handle_hometrainer(source)
+            elif isinstance(source, GitStatsSource):
+                self._handle_git_stats(source)
+            else:
+                # Generic handling for future sources
+                self._handle_generic_source(source)
+            # When handler returns (back pressed), loop continues to source selection
 
     def _select_source(self, sources: list[DataSource]) -> DataSource | None:
         """Select a data source.
@@ -291,15 +303,15 @@ class Menu:
         table.add_column("Value", style="green", justify="right")
 
         # Format function based on unit type
-        def fmt(value: float) -> str:
+        def fmt(value: float, is_avg: bool = False) -> str:
             if unit == "time":
                 return format_duration(value)
             elif unit == "lines":
-                return format_lines(value)
+                return format_lines(value, is_avg)
             elif unit == "commits":
-                return format_commits(value)
+                return format_commits(value, is_avg)
             elif unit == "projects":
-                return format_projects(value)
+                return format_projects(value, is_avg)
             else:
                 return format_distance(value, unit_label)
 
@@ -307,11 +319,11 @@ class Menu:
         table.add_row(Constants.PERIOD_LAST_7_DAYS, fmt(stats.last_7_days))
         table.add_row(Constants.PERIOD_LAST_31_DAYS, fmt(stats.last_31_days))
 
-        # Averages section
+        # Averages section (show 1 decimal place)
         table.add_row("", "")  # Empty row as separator
         table.add_row(
             Constants.PERIOD_AVG_LAST_30_DAYS,
-            fmt(stats.avg_per_day_last_30_days),
+            fmt(stats.avg_per_day_last_30_days, is_avg=True),
         )
 
         # Trend with color
@@ -326,15 +338,15 @@ class Menu:
         table.add_row("", "")  # Empty row as separator
         table.add_row(
             Constants.PERIOD_AVG_LAST_12_MONTHS,
-            fmt(stats.avg_per_day_last_12_months),
+            fmt(stats.avg_per_day_last_12_months, is_avg=True),
         )
         table.add_row(
             Constants.PERIOD_AVG_THIS_YEAR,
-            fmt(stats.avg_per_day_this_year),
+            fmt(stats.avg_per_day_this_year, is_avg=True),
         )
         table.add_row(
             Constants.PERIOD_AVG_LAST_YEAR,
-            fmt(stats.avg_per_day_last_year),
+            fmt(stats.avg_per_day_last_year, is_avg=True),
         )
 
         # Standard periods
@@ -357,6 +369,7 @@ class Menu:
                 choices=[
                     Constants.MENU_VIEW_STATS,
                     Constants.MENU_TOP_REPOS,
+                    Constants.MENU_DATABASE,
                     Constants.MENU_DEBUG_GIT,
                     Constants.MENU_BACK,
                 ],
@@ -369,6 +382,8 @@ class Menu:
                 self._view_git_stats(source)
             elif main_choice == Constants.MENU_TOP_REPOS:
                 self._show_top_repos(source)
+            elif main_choice == Constants.MENU_DATABASE:
+                self._manage_database(source)
             elif main_choice == Constants.MENU_DEBUG_GIT:
                 self._debug_git_exclusions(source)
 
@@ -376,7 +391,7 @@ class Menu:
         """View git statistics."""
         items = source.get_selectable_items()
         selected = self._select_item_with_back(items, "Select stat type:")
-        if selected is None:
+        if selected is None or not isinstance(selected, SelectableItem):
             return
 
         stats = source.get_stats(selected.id, selected.item_type)
