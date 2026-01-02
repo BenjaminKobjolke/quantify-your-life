@@ -68,6 +68,10 @@ class GitStatsConfig:
         "obj",
         "packages",
         ".nuget",
+        # Unity
+        "Library",
+        "Temp",
+        "Logs",
         # Flutter / Dart
         ".dart_tool",
         ".pub-cache",
@@ -82,6 +86,9 @@ class GitStatsConfig:
         ".idea",
         ".vscode",
         ".vs",
+        # Xcode
+        ".xcodeproj",
+        ".xcworkspace",
     )
     exclude_extensions: tuple[str, ...] = (
         # Lock files (machine-generated)
@@ -134,6 +141,8 @@ class GitStatsConfig:
         ".g.dart",
         ".freezed.dart",
         ".gr.dart",
+        ".mocks.dart",
+        ".g.kt",
         # Generated TypeScript/JS
         ".d.ts",
         ".min.js",
@@ -142,6 +151,17 @@ class GitStatsConfig:
         # Other generated
         ".generated.cs",
         ".designer.cs",
+        # Unity
+        ".meta",
+        # Xcode / iOS
+        ".pbxproj",
+        ".xcscheme",
+        ".xcworkspacedata",
+        ".xcsettings",
+        ".xcconfig",
+        ".storyboard",
+        # Android / Gradle
+        ".gradle",
     )
     exclude_filenames: tuple[str, ...] = (
         # Lock files by name
@@ -160,6 +180,93 @@ class GitStatsConfig:
         ".gitattributes",
         ".editorconfig",
     )
+
+
+@dataclass(frozen=True)
+class ProjectTypeConfig:
+    """Configuration for a specific project type.
+
+    Defines detection criteria and filtering rules for different project types.
+    """
+
+    name: str
+    detection_files: tuple[str, ...] = ()  # Files that indicate this project type
+    detection_dirs: tuple[str, ...] = ()  # Directories that indicate this project type
+    include_patterns: tuple[str, ...] = ()  # If set, ONLY count files matching these
+    exclude_dirs: tuple[str, ...] = ()  # Additional dirs to exclude for this type
+    exclude_extensions: tuple[str, ...] = ()  # Additional extensions to exclude
+
+
+# Default project type configurations
+DEFAULT_PROJECT_TYPES: dict[str, ProjectTypeConfig] = {
+    "unity": ProjectTypeConfig(
+        name="unity",
+        detection_files=("*.sln",),
+        detection_dirs=("Assets", "ProjectSettings"),
+        include_patterns=("Assets/Scripts/**/*.cs", "Assets/**/*.cs"),
+        exclude_dirs=("Library", "Temp", "Logs", "Builds", "obj"),
+    ),
+    "flutter": ProjectTypeConfig(
+        name="flutter",
+        detection_files=("pubspec.yaml",),
+        detection_dirs=(),
+        include_patterns=("lib/**/*.dart",),
+        exclude_dirs=(
+            ".dart_tool",
+            ".pub-cache",
+            ".pub",
+            "build",
+            "android",
+            "ios",
+            "linux",
+            "macos",
+            "windows",
+            "web",
+        ),
+    ),
+    "python": ProjectTypeConfig(
+        name="python",
+        detection_files=("pyproject.toml", "setup.py", "requirements.txt"),
+        detection_dirs=(),
+        include_patterns=(),  # Use global exclusions
+        exclude_dirs=("venv", ".venv", "env", ".env", "__pycache__", ".pytest_cache"),
+    ),
+    "node": ProjectTypeConfig(
+        name="node",
+        detection_files=("package.json",),
+        detection_dirs=(),
+        include_patterns=(),  # Use global exclusions
+        exclude_dirs=("node_modules", ".npm", ".yarn", "dist", "build"),
+    ),
+    "arduino": ProjectTypeConfig(
+        name="arduino",
+        detection_files=("platformio.ini", "*.ino"),
+        detection_dirs=(),
+        include_patterns=("src/**/*", "*.ino", "*.cpp", "*.c", "*.h"),
+        exclude_dirs=(".pio", ".pioenvs", ".piolibdeps", "lib"),
+    ),
+    "go": ProjectTypeConfig(
+        name="go",
+        detection_files=("go.mod",),
+        detection_dirs=(),
+        include_patterns=(),  # Use global exclusions
+        exclude_dirs=("vendor",),
+    ),
+    "rust": ProjectTypeConfig(
+        name="rust",
+        detection_files=("Cargo.toml",),
+        detection_dirs=(),
+        include_patterns=(),  # Use global exclusions
+        exclude_dirs=("target",),
+    ),
+    "generic": ProjectTypeConfig(
+        name="generic",
+        detection_files=(),
+        detection_dirs=(),
+        include_patterns=(),  # Use global exclusions only
+        exclude_dirs=(),
+    ),
+}
 
 
 @dataclass(frozen=True)

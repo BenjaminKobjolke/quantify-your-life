@@ -48,6 +48,25 @@ class GitStatsCache:
         """Initialize cache with database path."""
         self._db = ThreadLocalDB(db_path, self._init_schema)
 
+    # SQL for repo metadata
+    _SQL_GET_PROJECT_TYPE = """
+        SELECT project_type, type_source FROM repo_metadata WHERE repo_path = ?
+    """
+
+    _SQL_SET_PROJECT_TYPE = """
+        INSERT OR REPLACE INTO repo_metadata (repo_path, project_type, type_source, detected_at)
+        VALUES (?, ?, ?, datetime('now'))
+    """
+
+    _SQL_GET_ALL_PROJECT_TYPES = """
+        SELECT repo_path, project_type, type_source, detected_at FROM repo_metadata
+        ORDER BY repo_path
+    """
+
+    _SQL_DELETE_PROJECT_TYPE = """
+        DELETE FROM repo_metadata WHERE repo_path = ?
+    """
+
     @staticmethod
     def _init_schema(conn: sqlite3.Connection) -> None:
         """Create tables and migrate schema."""
@@ -66,6 +85,16 @@ class GitStatsCache:
         """)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_daily_stats_repo ON daily_stats(repo_path)
+        """)
+
+        # Repo metadata table for project type detection
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS repo_metadata (
+                repo_path TEXT PRIMARY KEY,
+                project_type TEXT NOT NULL,
+                type_source TEXT NOT NULL,
+                detected_at TEXT NOT NULL
+            )
         """)
         conn.commit()
 
@@ -197,6 +226,60 @@ class GitStatsCache:
     def clear_all(self) -> None:
         """Remove all cached data."""
         self._db.execute("DELETE FROM daily_stats")
+        self._db.commit()
+
+    def get_project_type(self, repo_path: Path) -> tuple[str, str] | None:
+        """Get stored project type for a repository.
+
+        Args:
+            repo_path: Path to the git repository.
+
+        Returns:
+            Tuple of (project_type, type_source) or None if not stored.
+            type_source is "auto" or "user".
+        """
+        row = self._db.execute(
+            self._SQL_GET_PROJECT_TYPE, (self._repo_key(repo_path),)
+        ).fetchone()
+        if row:
+            return (row["project_type"], row["type_source"])
+        return None
+
+    def set_project_type(
+        self, repo_path: Path, project_type: str, type_source: str
+    ) -> None:
+        """Store project type for a repository.
+
+        Args:
+            repo_path: Path to the git repository.
+            project_type: The project type name (e.g., "unity", "flutter").
+            type_source: Either "auto" (detected) or "user" (manually set).
+        """
+        self._db.execute(
+            self._SQL_SET_PROJECT_TYPE,
+            (self._repo_key(repo_path), project_type, type_source),
+        )
+        self._db.commit()
+
+    def get_all_project_types(self) -> list[tuple[str, str, str, str]]:
+        """Get all stored project types.
+
+        Returns:
+            List of (repo_path, project_type, type_source, detected_at) tuples.
+        """
+        rows = self._db.execute(self._SQL_GET_ALL_PROJECT_TYPES).fetchall()
+        return [
+            (row["repo_path"], row["project_type"], row["type_source"], row["detected_at"])
+            for row in rows
+        ]
+
+    def delete_project_type(self, repo_path: Path) -> None:
+        """Remove stored project type for a repository.
+
+        Args:
+            repo_path: Path to the git repository.
+        """
+        self._db.execute(self._SQL_DELETE_PROJECT_TYPE, (self._repo_key(repo_path),))
         self._db.commit()
 
     def close(self) -> None:
