@@ -1,5 +1,6 @@
 """Interactive CLI menu using questionary."""
 
+from datetime import date, timedelta
 from typing import cast
 
 import questionary
@@ -9,6 +10,7 @@ from rich.table import Table
 from quantify.config.constants import Constants
 from quantify.services.stats_calculator import TimeStats
 from quantify.sources.base import DataSource, SelectableItem
+from quantify.sources.git_stats import GitStatsSource
 from quantify.sources.hometrainer import HometrainerSource
 from quantify.sources.registry import SourceRegistry
 from quantify.sources.track_and_graph import TrackAndGraphSource
@@ -45,6 +47,46 @@ def format_distance(value: float, unit: str) -> str:
         Formatted string like "42.5 km".
     """
     return f"{value:.1f} {unit}"
+
+
+def format_lines(value: float) -> str:
+    """Format line count with thousands separator.
+
+    Args:
+        value: Number of lines.
+
+    Returns:
+        Formatted string like "1,234 lines".
+    """
+    return f"{int(value):,} lines"
+
+
+def format_commits(value: float) -> str:
+    """Format commit count.
+
+    Args:
+        value: Number of commits.
+
+    Returns:
+        Formatted string like "1,234 commits".
+    """
+    count = int(value)
+    suffix = "commit" if count == 1 else "commits"
+    return f"{count:,} {suffix}"
+
+
+def format_projects(value: float) -> str:
+    """Format project count.
+
+    Args:
+        value: Number of projects.
+
+    Returns:
+        Formatted string like "15 projects".
+    """
+    count = int(value)
+    suffix = "project" if count == 1 else "projects"
+    return f"{count:,} {suffix}"
 
 
 def format_trend(trend: float | None) -> str:
@@ -93,6 +135,8 @@ class Menu:
             self._handle_track_and_graph(source)
         elif isinstance(source, HometrainerSource):
             self._handle_hometrainer(source)
+        elif isinstance(source, GitStatsSource):
+            self._handle_git_stats(source)
         else:
             # Generic handling for future sources
             self._handle_generic_source(source)
@@ -104,7 +148,7 @@ class Menu:
             sources: List of configured sources.
 
         Returns:
-            Selected source or None if cancelled.
+            Selected source or None if cancelled/back.
         """
         if len(sources) == 1:
             return sources[0]
@@ -112,6 +156,7 @@ class Menu:
         choices = [
             questionary.Choice(title=s.info.display_name, value=s) for s in sources
         ]
+        choices.append(questionary.Choice(title=Constants.MENU_EXIT, value=None))
 
         result = questionary.select(
             Constants.SOURCE_SELECT_TITLE,
@@ -122,34 +167,35 @@ class Menu:
 
     def _handle_track_and_graph(self, source: TrackAndGraphSource) -> None:
         """Handle Track & Graph source flow."""
-        view_choice = self._ask_view_type()
-        if view_choice is None:
-            return
-
-        if view_choice == Constants.MENU_GROUP:
-            items = source.get_groups()
-            if not items:
-                self._console.print(f"[red]{Constants.ERROR_NO_GROUPS}[/red]")
+        while True:
+            view_choice = self._ask_view_type()
+            if view_choice is None or view_choice == Constants.MENU_BACK:
                 return
 
-            selected = self._select_item(items, Constants.MENU_SELECT_GROUP)
-            if selected is None:
-                return
+            if view_choice == Constants.MENU_GROUP:
+                items = source.get_groups()
+                if not items:
+                    self._console.print(f"[red]{Constants.ERROR_NO_GROUPS}[/red]")
+                    continue
 
-            stats = source.get_stats(selected.id, "group")
-            self._display_stats(selected.name, stats, source.info.unit, source.info.unit_label)
-        else:
-            items = source.get_features()
-            if not items:
-                self._console.print(f"[red]{Constants.ERROR_NO_FEATURES}[/red]")
-                return
+                selected = self._select_item_with_back(items, Constants.MENU_SELECT_GROUP)
+                if selected is None:
+                    continue
 
-            selected = self._select_item(items, Constants.MENU_SELECT_FEATURE)
-            if selected is None:
-                return
+                stats = source.get_stats(selected.id, "group")
+                self._display_stats(selected.name, stats, source.info.unit, source.info.unit_label)
+            else:
+                items = source.get_features()
+                if not items:
+                    self._console.print(f"[red]{Constants.ERROR_NO_FEATURES}[/red]")
+                    continue
 
-            stats = source.get_stats(selected.id, "feature")
-            self._display_stats(selected.name, stats, source.info.unit, source.info.unit_label)
+                selected = self._select_item_with_back(items, Constants.MENU_SELECT_FEATURE)
+                if selected is None:
+                    continue
+
+                stats = source.get_stats(selected.id, "feature")
+                self._display_stats(selected.name, stats, source.info.unit, source.info.unit_label)
 
     def _handle_hometrainer(self, source: HometrainerSource) -> None:
         """Handle Hometrainer source flow."""
@@ -190,7 +236,11 @@ class Menu:
         """
         result = questionary.select(
             Constants.MENU_VIEW_BY,
-            choices=[Constants.MENU_GROUP, Constants.MENU_FEATURE],
+            choices=[
+                Constants.MENU_GROUP,
+                Constants.MENU_FEATURE,
+                Constants.MENU_BACK,
+            ],
         ).ask()
         return cast(str | None, result)
 
@@ -205,6 +255,23 @@ class Menu:
             Selected item or None if cancelled.
         """
         choices = [questionary.Choice(title=item.name, value=item) for item in items]
+        result = questionary.select(prompt, choices=choices).ask()
+        return cast(SelectableItem | None, result)
+
+    def _select_item_with_back(
+        self, items: list[SelectableItem], prompt: str
+    ) -> SelectableItem | None:
+        """Let user select an item with back option.
+
+        Args:
+            items: List of available items.
+            prompt: Prompt text.
+
+        Returns:
+            Selected item or None if back/cancelled.
+        """
+        choices = [questionary.Choice(title=item.name, value=item) for item in items]
+        choices.append(questionary.Choice(title=Constants.MENU_BACK, value=None))
         result = questionary.select(prompt, choices=choices).ask()
         return cast(SelectableItem | None, result)
 
@@ -227,6 +294,12 @@ class Menu:
         def fmt(value: float) -> str:
             if unit == "time":
                 return format_duration(value)
+            elif unit == "lines":
+                return format_lines(value)
+            elif unit == "commits":
+                return format_commits(value)
+            elif unit == "projects":
+                return format_projects(value)
             else:
                 return format_distance(value, unit_label)
 
@@ -271,6 +344,182 @@ class Menu:
         table.add_row(Constants.PERIOD_LAST_MONTH, fmt(stats.last_month))
         table.add_row(Constants.PERIOD_LAST_12_MONTHS, fmt(stats.last_12_months))
         table.add_row(Constants.PERIOD_TOTAL, fmt(stats.total))
+
+        self._console.print()
+        self._console.print(table)
+
+    def _handle_git_stats(self, source: GitStatsSource) -> None:
+        """Handle Git Stats source flow with main menu."""
+        while True:
+            # Main menu for Git Stats
+            main_choice = questionary.select(
+                "Git Stats - What would you like to do?",
+                choices=[
+                    Constants.MENU_VIEW_STATS,
+                    Constants.MENU_TOP_REPOS,
+                    Constants.MENU_DEBUG_GIT,
+                    Constants.MENU_BACK,
+                ],
+            ).ask()
+
+            if main_choice is None or main_choice == Constants.MENU_BACK:
+                break
+
+            if main_choice == Constants.MENU_VIEW_STATS:
+                self._view_git_stats(source)
+            elif main_choice == Constants.MENU_TOP_REPOS:
+                self._show_top_repos(source)
+            elif main_choice == Constants.MENU_DEBUG_GIT:
+                self._debug_git_exclusions(source)
+
+    def _view_git_stats(self, source: GitStatsSource) -> None:
+        """View git statistics."""
+        items = source.get_selectable_items()
+        selected = self._select_item_with_back(items, "Select stat type:")
+        if selected is None:
+            return
+
+        stats = source.get_stats(selected.id, selected.item_type)
+
+        # Determine unit based on stat type
+        if selected.item_type == source.STAT_COMMITS:
+            unit = "commits"
+            unit_label = "commits"
+        elif selected.item_type == source.STAT_PROJECTS_CREATED:
+            unit = "projects"
+            unit_label = "projects"
+        else:
+            unit = source.info.unit
+            unit_label = source.info.unit_label
+
+        self._display_stats(selected.name, stats, unit, unit_label)
+
+    def _show_top_repos(self, source: GitStatsSource) -> None:
+        """Show top 10 repos by net lines changed."""
+        # Ask for time period
+        period = questionary.select(
+            Constants.GIT_SELECT_PERIOD,
+            choices=[
+                Constants.GIT_PERIOD_LAST_7_DAYS,
+                Constants.GIT_PERIOD_LAST_30_DAYS,
+                Constants.GIT_PERIOD_LAST_12_MONTHS,
+                Constants.GIT_PERIOD_ALL_TIME,
+                Constants.MENU_BACK,
+            ],
+        ).ask()
+
+        if period is None or period == Constants.MENU_BACK:
+            return
+
+        # Calculate date range
+        today = date.today()
+        start_date: date | None = None
+
+        if period == Constants.GIT_PERIOD_LAST_7_DAYS:
+            start_date = today - timedelta(days=6)
+        elif period == Constants.GIT_PERIOD_LAST_30_DAYS:
+            start_date = today - timedelta(days=29)
+        elif period == Constants.GIT_PERIOD_LAST_12_MONTHS:
+            start_date = today - timedelta(days=364)
+        # All time: start_date remains None
+
+        # Get top repos
+        top_repos = source.get_top_repos(start_date, today)
+
+        if not top_repos:
+            self._console.print("[yellow]No repositories found[/yellow]")
+            return
+
+        # Display results
+        table = Table(title=f"Top 10 Repos ({period})")
+        table.add_column("#", style="cyan", justify="right")
+        table.add_column("Repository", style="green")
+        table.add_column("Net Lines", style="magenta", justify="right")
+
+        for idx, (repo_path, net_lines) in enumerate(top_repos, 1):
+            sign = "+" if net_lines >= 0 else ""
+            table.add_row(str(idx), repo_path.name, f"{sign}{net_lines:,}")
+
+        self._console.print()
+        self._console.print(table)
+
+    def _debug_git_exclusions(self, source: GitStatsSource) -> None:
+        """Debug which files are excluded from a repository."""
+        repos = source.get_repos()
+
+        if not repos:
+            self._console.print("[yellow]No repositories found[/yellow]")
+            return
+
+        # Select a repository
+        choices = [
+            questionary.Choice(title=repo.name, value=repo) for repo in repos
+        ]
+        choices.append(questionary.Choice(title=Constants.MENU_BACK, value=None))
+        selected_repo = questionary.select(
+            Constants.DEBUG_SELECT_REPO,
+            choices=choices,
+        ).ask()
+
+        if selected_repo is None:
+            return
+
+        # Analyze exclusions
+        analysis = source.analyze_exclusions(selected_repo)
+        self._show_exclusion_report(selected_repo.name, analysis)
+
+    def _show_exclusion_report(self, repo_name: str, analysis: dict) -> None:
+        """Display exclusion analysis report."""
+        table = Table(title=f"{Constants.DEBUG_REPORT_TITLE}: {repo_name}")
+        table.add_column("Category", style="cyan")
+        table.add_column("Count", style="magenta", justify="right")
+        table.add_column("Examples", style="dim")
+
+        # Total tracked files
+        table.add_row(
+            Constants.DEBUG_TOTAL_TRACKED,
+            str(analysis["total_tracked"]),
+            "",
+        )
+
+        # Excluded by directory
+        dir_data = analysis["excluded_by_dir"]
+        examples = ", ".join(dir_data["examples"][:3]) if dir_data["examples"] else "(none)"
+        table.add_row(
+            Constants.DEBUG_EXCLUDED_DIR,
+            str(dir_data["count"]),
+            examples,
+        )
+
+        # Excluded by extension
+        ext_data = analysis["excluded_by_extension"]
+        examples = ", ".join(ext_data["examples"][:3]) if ext_data["examples"] else "(none)"
+        table.add_row(
+            Constants.DEBUG_EXCLUDED_EXT,
+            str(ext_data["count"]),
+            examples,
+        )
+
+        # Excluded by filename
+        name_data = analysis["excluded_by_filename"]
+        examples = ", ".join(name_data["examples"][:3]) if name_data["examples"] else "(none)"
+        table.add_row(
+            Constants.DEBUG_EXCLUDED_NAME,
+            str(name_data["count"]),
+            examples,
+        )
+
+        # Separator
+        table.add_row("", "", "")
+
+        # Included files
+        inc_data = analysis["included_files"]
+        examples = ", ".join(inc_data["examples"][:3]) if inc_data["examples"] else "(none)"
+        table.add_row(
+            Constants.DEBUG_INCLUDED,
+            str(inc_data["count"]),
+            examples,
+        )
 
         self._console.print()
         self._console.print(table)

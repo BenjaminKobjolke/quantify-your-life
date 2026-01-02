@@ -1,5 +1,6 @@
 """Git statistics data source."""
 
+from datetime import date
 from pathlib import Path
 
 from rich.console import Console
@@ -7,7 +8,10 @@ from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
 
 from quantify.services.stats_calculator import StatsCalculator, TimeStats
 from quantify.sources.base import DataProvider, DataSource, SelectableItem, SourceInfo
-from quantify.sources.git_stats.data_provider import GitStatsDataProvider
+from quantify.sources.git_stats.data_provider import (
+    GitStatsDataProvider,
+    ProjectsCreatedDataProvider,
+)
 from quantify.sources.git_stats.git_log_parser import GitLogParser
 from quantify.sources.git_stats.repo_scanner import RepoScanner
 from quantify.sources.git_stats.stats_cache import GitStatsCache
@@ -20,6 +24,8 @@ class GitStatsSource(DataSource):
     STAT_ADDED = "added"
     STAT_REMOVED = "removed"
     STAT_NET = "net"
+    STAT_COMMITS = "commits"
+    STAT_PROJECTS_CREATED = "projects_created"
 
     # Cache location
     CACHE_DIR = Path.home() / ".quantify-your-life"
@@ -74,11 +80,13 @@ class GitStatsSource(DataSource):
         return any(Path(p).exists() for p in self._root_paths)
 
     def get_selectable_items(self) -> list[SelectableItem]:
-        """Return three stat items: Lines Added, Lines Removed, Net Lines."""
+        """Return stat items for git statistics."""
         return [
             SelectableItem(None, "Git: Lines Added", self.STAT_ADDED),
             SelectableItem(None, "Git: Lines Removed", self.STAT_REMOVED),
             SelectableItem(None, "Git: Net Lines", self.STAT_NET),
+            SelectableItem(None, "Git: Commits", self.STAT_COMMITS),
+            SelectableItem(None, "Git: Projects Created", self.STAT_PROJECTS_CREATED),
         ]
 
     def get_item_name(self, item_id: int | None, item_type: str) -> str | None:
@@ -86,7 +94,7 @@ class GitStatsSource(DataSource):
 
         Args:
             item_id: Not used (always None for git stats).
-            item_type: "added", "removed", or "net".
+            item_type: Stat type (added, removed, net, commits, projects_created).
 
         Returns:
             The item name, or None if not found.
@@ -95,6 +103,8 @@ class GitStatsSource(DataSource):
             self.STAT_ADDED: "Git: Lines Added",
             self.STAT_REMOVED: "Git: Lines Removed",
             self.STAT_NET: "Git: Net Lines",
+            self.STAT_COMMITS: "Git: Commits",
+            self.STAT_PROJECTS_CREATED: "Git: Projects Created",
         }
         return names.get(item_type)
 
@@ -105,16 +115,23 @@ class GitStatsSource(DataSource):
 
         Args:
             item_id: Not used (always None for git stats).
-            item_type: "added", "removed", or "net".
+            item_type: Stat type (added, removed, net, commits, projects_created).
 
         Returns:
-            GitStatsDataProvider for the requested stat type.
+            Appropriate data provider for the requested stat type.
         """
         self._ensure_initialized()
         stat_type = item_type or self.STAT_NET
         assert self._repos is not None
         assert self._parser is not None
         assert self._cache is not None
+
+        if stat_type == self.STAT_PROJECTS_CREATED:
+            return ProjectsCreatedDataProvider(
+                self._repos,
+                self._parser,
+                progress_callback=self._on_progress,
+            )
 
         return GitStatsDataProvider(
             self._repos,
@@ -189,3 +206,98 @@ class GitStatsSource(DataSource):
                 self._task_id,
                 description=f"Scanning {repo_name} ({current}/{total})...",
             )
+
+    def get_repos(self) -> list[Path]:
+        """Get list of discovered repositories.
+
+        Returns:
+            List of repository paths.
+        """
+        self._ensure_initialized()
+        assert self._repos is not None
+        return self._repos
+
+    def get_parser(self) -> GitLogParser:
+        """Get the git log parser.
+
+        Returns:
+            GitLogParser instance.
+        """
+        self._ensure_initialized()
+        assert self._parser is not None
+        return self._parser
+
+    def analyze_exclusions(self, repo_path: Path) -> dict:
+        """Analyze which files would be excluded for a repository.
+
+        Args:
+            repo_path: Path to the git repository.
+
+        Returns:
+            Dictionary with exclusion analysis.
+        """
+        self._ensure_initialized()
+        assert self._parser is not None
+        return self._parser.analyze_exclusions(repo_path)
+
+    def get_top_repos(
+        self,
+        start_date: date | None,
+        end_date: date | None,
+        limit: int = 10,
+    ) -> list[tuple[Path, int]]:
+        """Get top N repos by net lines changed.
+
+        Args:
+            start_date: First day to include (None for no lower bound).
+            end_date: Last day to include (None for today).
+            limit: Maximum number of repos to return.
+
+        Returns:
+            List of (repo_path, net_lines) tuples sorted by net lines descending.
+        """
+        self._ensure_initialized()
+        assert self._repos is not None
+        assert self._parser is not None
+        assert self._cache is not None
+
+        effective_end = end_date if end_date is not None else date.today()
+        repo_stats: list[tuple[Path, int]] = []
+
+        # Show progress during calculation
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self._console,
+            transient=True,
+        ) as progress:
+            self._progress = progress
+            self._task_id = progress.add_task("Analyzing repositories...", total=None)
+            total_repos = len(self._repos)
+
+            try:
+                for idx, repo in enumerate(self._repos):
+                    self._on_progress(repo.name, idx + 1, total_repos)
+
+                    if start_date is None:
+                        # Unbounded query - use parser directly
+                        stats = self._parser.get_stats(repo, start_date, effective_end)
+                        net = stats.net
+                    else:
+                        # Use cache
+                        provider = GitStatsDataProvider(
+                            [repo],
+                            self._parser,
+                            self.STAT_NET,
+                            self._cache,
+                        )
+                        net = int(provider.get_sum(start_date, effective_end))
+
+                    repo_stats.append((repo, net))
+            finally:
+                self._progress = None
+                self._task_id = None
+
+        # Sort by net lines descending and limit
+        repo_stats.sort(key=lambda x: x[1], reverse=True)
+        return repo_stats[:limit]

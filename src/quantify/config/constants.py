@@ -82,3 +82,26 @@ class Constants:
 
     # Hometrainer
     HOMETRAINER_STATS_NAME: str = "Hometrainer"
+
+    # Main menu options
+    MENU_VIEW_STATS: str = "View Statistics"
+    MENU_TOP_REPOS: str = "Top 10 Repos"
+    MENU_DEBUG_GIT: str = "Debug Git Exclusions"
+    MENU_BACK: str = "← Back"
+    MENU_EXIT: str = "Exit"
+
+    # Git Stats menu
+    GIT_SELECT_PERIOD: str = "Select time period:"
+    GIT_PERIOD_LAST_7_DAYS: str = "Last 7 days"
+    GIT_PERIOD_LAST_30_DAYS: str = "Last 30 days"
+    GIT_PERIOD_LAST_12_MONTHS: str = "Last 12 months"
+    GIT_PERIOD_ALL_TIME: str = "All time"
+
+    # Debug menu
+    DEBUG_SELECT_REPO: str = "Select a repository to analyze:"
+    DEBUG_REPORT_TITLE: str = "Exclusion Report"
+    DEBUG_TOTAL_TRACKED: str = "Total tracked files"
+    DEBUG_EXCLUDED_DIR: str = "Excluded by directory"
+    DEBUG_EXCLUDED_EXT: str = "Excluded by extension"
+    DEBUG_EXCLUDED_NAME: str = "Excluded by filename"
+    DEBUG_INCLUDED: str = "Files to be counted"
