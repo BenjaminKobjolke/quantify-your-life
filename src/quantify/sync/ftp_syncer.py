@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from pyftpsync.ftp_target import FtpTarget
-from pyftpsync.synchronizers import UploadSynchronizer
-from pyftpsync.targets import FsTarget
+from ftpsync.ftp_target import FTPTarget
+from ftpsync.synchronizers import UploadSynchronizer
+from ftpsync.targets import FsTarget
 
 from quantify.config.settings import FtpSyncSettings
 
@@ -33,7 +33,7 @@ class FtpSyncer:
             f"@{self._settings.host}:{self._settings.port}{self._settings.remote_path}"
         )
 
-        remote = FtpTarget(
+        remote = FTPTarget(
             ftp_url,
             timeout=self._settings.timeout,
         )
