@@ -2,7 +2,7 @@
 
 import shutil
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -84,6 +84,16 @@ class HtmlExporter:
             # Get stats
             stats = source.get_stats(entry.entry_id, entry.entry_type)
 
+            # Determine unit based on entry type (for git stats commits/projects)
+            unit = source.info.unit
+            unit_label = source.info.unit_label
+            if entry.entry_type == "commits":
+                unit = "commits"
+                unit_label = "commits"
+            elif entry.entry_type == "projects_created":
+                unit = "projects"
+                unit_label = "projects"
+
             # Export to HTML
             file_path = self._export_stats(
                 output_dir=output_dir,
@@ -92,8 +102,8 @@ class HtmlExporter:
                 entry_type=entry.entry_type,
                 source_id=entry.source,
                 stats=stats,
-                unit=source.info.unit,
-                unit_label=source.info.unit_label,
+                unit=unit,
+                unit_label=unit_label,
             )
             generated_files.append(file_path)
             index_entries.append({"name": name, "filename": file_path.name})
@@ -104,9 +114,7 @@ class HtmlExporter:
 
         return generated_files
 
-    def _export_index(
-        self, output_dir: Path, entries: list[dict[str, str]]
-    ) -> Path:
+    def _export_index(self, output_dir: Path, entries: list[dict[str, str]]) -> Path:
         """Generate index.html with links to all exported stats.
 
         Args:
@@ -212,9 +220,7 @@ class HtmlExporter:
 
         return file_path
 
-    def _build_stats_rows(
-        self, stats: TimeStats, unit: str, unit_label: str
-    ) -> list[StatsRow]:
+    def _build_stats_rows(self, stats: TimeStats, unit: str, unit_label: str) -> list[StatsRow]:
         """Build stats table rows from TimeStats.
 
         Args:
@@ -230,6 +236,9 @@ class HtmlExporter:
         def fmt(value: float) -> str:
             return format_value(value, unit, unit_label)
 
+        def fmt_avg(value: float) -> str:
+            return format_value(value, unit, unit_label, is_avg=True)
+
         # Recent periods
         rows.append(StatsRow(Constants.PERIOD_LAST_7_DAYS, fmt(stats.last_7_days)))
         rows.append(StatsRow(Constants.PERIOD_LAST_31_DAYS, fmt(stats.last_31_days)))
@@ -241,7 +250,7 @@ class HtmlExporter:
         rows.append(
             StatsRow(
                 Constants.PERIOD_AVG_LAST_30_DAYS,
-                fmt(stats.avg_per_day_last_30_days),
+                fmt_avg(stats.avg_per_day_last_30_days),
             )
         )
 
@@ -259,19 +268,43 @@ class HtmlExporter:
         rows.append(
             StatsRow(
                 Constants.PERIOD_AVG_LAST_12_MONTHS,
-                fmt(stats.avg_per_day_last_12_months),
+                fmt_avg(stats.avg_per_day_last_12_months),
             )
         )
         rows.append(
             StatsRow(
                 Constants.PERIOD_AVG_THIS_YEAR,
-                fmt(stats.avg_per_day_this_year),
+                fmt_avg(stats.avg_per_day_this_year),
             )
         )
         rows.append(
             StatsRow(
                 Constants.PERIOD_AVG_LAST_YEAR,
-                fmt(stats.avg_per_day_last_year),
+                fmt_avg(stats.avg_per_day_last_year),
+            )
+        )
+
+        # Separator
+        rows.append(StatsRow("", "", is_separator=True))
+
+        # Yearly totals
+        current_year = date.today().year
+        rows.append(
+            StatsRow(
+                Constants.PERIOD_TOTAL_THIS_YEAR.format(year=current_year),
+                fmt(stats.total_this_year),
+            )
+        )
+        rows.append(
+            StatsRow(
+                Constants.PERIOD_TOTAL_LAST_YEAR.format(year=current_year - 1),
+                fmt(stats.total_last_year),
+            )
+        )
+        rows.append(
+            StatsRow(
+                Constants.PERIOD_TOTAL_YEAR_BEFORE.format(year=current_year - 2),
+                fmt(stats.total_year_before),
             )
         )
 
@@ -282,9 +315,7 @@ class HtmlExporter:
         rows.append(StatsRow(Constants.PERIOD_THIS_WEEK, fmt(stats.this_week)))
         rows.append(StatsRow(Constants.PERIOD_THIS_MONTH, fmt(stats.this_month)))
         rows.append(StatsRow(Constants.PERIOD_LAST_MONTH, fmt(stats.last_month)))
-        rows.append(
-            StatsRow(Constants.PERIOD_LAST_12_MONTHS, fmt(stats.last_12_months))
-        )
+        rows.append(StatsRow(Constants.PERIOD_LAST_12_MONTHS, fmt(stats.last_12_months)))
         rows.append(StatsRow(Constants.PERIOD_TOTAL, fmt(stats.total)))
 
         return rows

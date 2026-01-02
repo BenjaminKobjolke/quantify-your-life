@@ -72,53 +72,63 @@ def format_distance(value: float, unit: str) -> str:
     return f"{value:.1f} {unit}"
 
 
-def format_lines(value: float) -> str:
+def format_lines(value: float, is_avg: bool = False) -> str:
     """Format line count with thousands separator.
 
     Args:
         value: Number of lines.
+        is_avg: If True, show 1 decimal place for averages.
 
     Returns:
-        Formatted string like "1,234 lines" or "0 lines".
+        Formatted string like "1,234 lines" or "0.9 lines".
     """
+    if is_avg:
+        return f"{value:,.1f} lines"
     return f"{int(value):,} lines"
 
 
-def format_commits(value: float) -> str:
+def format_commits(value: float, is_avg: bool = False) -> str:
     """Format commit count with thousands separator.
 
     Args:
         value: Number of commits.
+        is_avg: If True, show 1 decimal place for averages.
 
     Returns:
-        Formatted string like "1,234 commits" or "1 commit".
+        Formatted string like "1,234 commits" or "0.9 commits".
     """
+    if is_avg:
+        return f"{value:,.1f} commits"
     count = int(value)
     suffix = "commit" if count == 1 else "commits"
     return f"{count:,} {suffix}"
 
 
-def format_projects(value: float) -> str:
+def format_projects(value: float, is_avg: bool = False) -> str:
     """Format project count with thousands separator.
 
     Args:
         value: Number of projects.
+        is_avg: If True, show 1 decimal place for averages.
 
     Returns:
-        Formatted string like "15 projects" or "1 project".
+        Formatted string like "15 projects" or "1.5 projects".
     """
+    if is_avg:
+        return f"{value:,.1f} projects"
     count = int(value)
     suffix = "project" if count == 1 else "projects"
     return f"{count:,} {suffix}"
 
 
-def format_value(value: float, unit: str, unit_label: str) -> str:
+def format_value(value: float, unit: str, unit_label: str, is_avg: bool = False) -> str:
     """Format a value based on its unit type.
 
     Args:
         value: The value to format.
         unit: Unit type ("time", "distance", "lines", "commits", or "projects").
         unit_label: Unit label for display (e.g., "h", "km", "mi", "lines").
+        is_avg: If True, show decimal places for averages.
 
     Returns:
         Formatted string appropriate for the unit type.
@@ -126,10 +136,10 @@ def format_value(value: float, unit: str, unit_label: str) -> str:
     if unit == "time":
         return format_duration(value)
     elif unit == "lines":
-        return format_lines(value)
+        return format_lines(value, is_avg)
     elif unit == "commits":
-        return format_commits(value)
+        return format_commits(value, is_avg)
     elif unit == "projects":
-        return format_projects(value)
+        return format_projects(value, is_avg)
     else:
         return format_distance(value, unit_label)

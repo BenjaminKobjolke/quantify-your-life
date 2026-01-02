@@ -31,6 +31,11 @@ class TimeStats:
     last_12_months: float
     total: float
 
+    # Yearly totals
+    total_this_year: float = 0.0
+    total_last_year: float = 0.0
+    total_year_before: float = 0.0
+
 
 # Type alias for the sum function that sources provide
 SumFunction = Callable[[date | None, date | None], float]
@@ -96,6 +101,9 @@ class StatsCalculator:
         days_last_year = (ranges["last_year_end"] - ranges["last_year_start"]).days + 1
         avg_last_year = last_year_sum / days_last_year if days_last_year > 0 else 0.0
 
+        # Year before last
+        year_before_sum = get_sum(ranges["year_before_start"], ranges["year_before_end"])
+
         # Standard periods
         this_week = get_sum(ranges["week_start"], ranges["today"])
         this_month = get_sum(ranges["month_start"], ranges["today"])
@@ -115,6 +123,9 @@ class StatsCalculator:
             last_month=last_month,
             last_12_months=last_12_months_sum,
             total=total,
+            total_this_year=this_year_sum,
+            total_last_year=last_year_sum,
+            total_year_before=year_before_sum,
         )
 
     def _get_date_ranges(self) -> dict[str, date]:
@@ -157,6 +168,10 @@ class StatsCalculator:
         last_year_start = date(today.year - 1, 1, 1)
         last_year_end = date(today.year - 1, 12, 31)
 
+        # Year before last
+        year_before_start = date(today.year - 2, 1, 1)
+        year_before_end = date(today.year - 2, 12, 31)
+
         return {
             "today": today,
             "7_days_ago": days_7_ago,
@@ -171,6 +186,8 @@ class StatsCalculator:
             "year_start": year_start,
             "last_year_start": last_year_start,
             "last_year_end": last_year_end,
+            "year_before_start": year_before_start,
+            "year_before_end": year_before_end,
         }
 
     def _calculate_trend(self, current: float, previous: float) -> float | None:
