@@ -71,6 +71,7 @@ class GitStatsDataProvider:
 
         total_added = 0
         total_removed = 0
+        total_commits = 0
         total_repos = len(self._repos)
 
         for idx, repo in enumerate(self._repos):
@@ -79,21 +80,22 @@ class GitStatsDataProvider:
                 self._progress_callback(repo.name, idx + 1, total_repos)
 
             # Get stats for this repo (using cache)
-            added, removed = self._get_repo_stats_cached(
+            added, removed, commits = self._get_repo_stats_cached(
                 repo, start_date, effective_end
             )
             total_added += added
             total_removed += removed
+            total_commits += commits
 
         # Return based on stat type
-        return float(self._compute_stat(total_added, total_removed))
+        return float(self._compute_stat(total_added, total_removed, total_commits))
 
     def _get_repo_stats_cached(
         self,
         repo: Path,
         start_date: date,
         end_date: date,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         """Get stats for a single repo using cache.
 
         Algorithm:
@@ -109,10 +111,10 @@ class GitStatsDataProvider:
             end_date: End of date range (inclusive).
 
         Returns:
-            Tuple of (total_added, total_removed) for the range.
+            Tuple of (total_added, total_removed, total_commits) for the range.
         """
         # 1. Get cached sum for historical dates
-        cached_added, cached_removed = self._cache.get_cached_sum(
+        cached_added, cached_removed, cached_commits = self._cache.get_cached_sum(
             repo, start_date, end_date
         )
 
@@ -120,11 +122,12 @@ class GitStatsDataProvider:
         missing_dates = self._cache.get_missing_dates(repo, start_date, end_date)
 
         if not missing_dates:
-            return (cached_added, cached_removed)
+            return (cached_added, cached_removed, cached_commits)
 
         # 3. Query git for missing dates and accumulate
         missing_added = 0
         missing_removed = 0
+        missing_commits = 0
         today = date.today()
         stats_to_cache: dict[date, GitStats] = {}
 
@@ -132,6 +135,7 @@ class GitStatsDataProvider:
             stats = self._parser.get_daily_stats(repo, day)
             missing_added += stats.added
             missing_removed += stats.removed
+            missing_commits += stats.commits
 
             # Only cache historical dates, not today
             if day < today:
@@ -142,7 +146,11 @@ class GitStatsDataProvider:
             self._cache.save_batch(repo, stats_to_cache)
 
         # 5. Return combined sum
-        return (cached_added + missing_added, cached_removed + missing_removed)
+        return (
+            cached_added + missing_added,
+            cached_removed + missing_removed,
+            cached_commits + missing_commits,
+        )
 
     def _get_sum_uncached(
         self,
@@ -169,16 +177,17 @@ class GitStatsDataProvider:
                 self._progress_callback(repo.name, idx + 1, total_repos)
 
             stats = self._parser.get_stats(repo, start_date, end_date)
-            total += self._compute_stat(stats.added, stats.removed)
+            total += self._compute_stat(stats.added, stats.removed, stats.commits)
 
         return float(total)
 
-    def _compute_stat(self, added: int, removed: int) -> int:
+    def _compute_stat(self, added: int, removed: int, commits: int) -> int:
         """Compute the appropriate stat based on stat_type.
 
         Args:
             added: Lines added count.
             removed: Lines removed count.
+            commits: Commit count.
 
         Returns:
             The requested stat value.
@@ -187,5 +196,77 @@ class GitStatsDataProvider:
             return added
         elif self._stat_type == "removed":
             return removed
+        elif self._stat_type == "commits":
+            return commits
         else:  # net
             return added - removed
+
+
+class ProjectsCreatedDataProvider:
+    """Provides count of projects created in a date range.
+
+    A project is considered "created" when its first commit by the author
+    falls within the queried date range.
+    """
+
+    def __init__(
+        self,
+        repos: list[Path],
+        git_parser: GitLogParser,
+        progress_callback: ProgressCallback = None,
+    ) -> None:
+        """Initialize data provider.
+
+        Args:
+            repos: List of repository paths to check.
+            git_parser: Parser for extracting git statistics.
+            progress_callback: Optional callback for progress updates.
+        """
+        self._repos = repos
+        self._parser = git_parser
+        self._progress_callback = progress_callback
+        self._first_commit_cache: dict[Path, date | None] = {}
+
+    def get_sum(
+        self,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> float:
+        """Count projects created in date range.
+
+        Args:
+            start_date: First day to include (None for no lower bound).
+            end_date: Last day to include (None for today).
+
+        Returns:
+            Number of repos where first commit falls in range.
+        """
+        effective_end = end_date if end_date is not None else date.today()
+        count = 0
+        total_repos = len(self._repos)
+
+        for idx, repo in enumerate(self._repos):
+            if self._progress_callback:
+                self._progress_callback(repo.name, idx + 1, total_repos)
+
+            first_commit = self._get_first_commit_date(repo)
+            if first_commit is None:
+                continue
+
+            # Check if first commit falls within range
+            in_range = True
+            if start_date is not None and first_commit < start_date:
+                in_range = False
+            if first_commit > effective_end:
+                in_range = False
+
+            if in_range:
+                count += 1
+
+        return float(count)
+
+    def _get_first_commit_date(self, repo: Path) -> date | None:
+        """Get cached first commit date for a repo."""
+        if repo not in self._first_commit_cache:
+            self._first_commit_cache[repo] = self._parser.get_first_commit_date(repo)
+        return self._first_commit_cache[repo]

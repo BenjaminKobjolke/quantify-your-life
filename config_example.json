@@ -23,7 +23,9 @@
             {"source": "hometrainer", "type": "stats", "id": null},
             {"source": "git_stats", "type": "added", "id": null},
             {"source": "git_stats", "type": "removed", "id": null},
-            {"source": "git_stats", "type": "net", "id": null}
+            {"source": "git_stats", "type": "net", "id": null},
+            {"source": "git_stats", "type": "commits", "id": null},
+            {"source": "git_stats", "type": "projects_created", "id": null}
         ]
     }
 }

@@ -58,6 +58,7 @@ class GitStatsCache:
                 date TEXT NOT NULL,
                 added INTEGER NOT NULL,
                 removed INTEGER NOT NULL,
+                commits INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (repo_path, date)
             )
         """)
@@ -71,13 +72,30 @@ class GitStatsCache:
         """)
         conn.commit()
 
+        # Migrate existing tables: add commits column if missing
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Migrate existing database schema to add new columns."""
+        conn = self._conn
+        assert conn is not None
+
+        # Check if commits column exists
+        cursor = conn.execute("PRAGMA table_info(daily_stats)")
+        columns = {row["name"] for row in cursor.fetchall()}
+
+        if "commits" not in columns:
+            conn.execute("ALTER TABLE daily_stats ADD COLUMN commits INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+            logger.info("Migrated daily_stats table: added commits column")
+
     def get_cached_sum(
         self,
         repo_path: Path,
         start_date: date,
         end_date: date,
-    ) -> tuple[int, int]:
-        """Get sum of cached added/removed for date range.
+    ) -> tuple[int, int, int]:
+        """Get sum of cached added/removed/commits for date range.
 
         Only returns data for dates that ARE in the cache. Missing dates
         are not included in the sum - caller must handle those separately.
@@ -88,7 +106,7 @@ class GitStatsCache:
             end_date: Last day to include (inclusive).
 
         Returns:
-            Tuple of (total_added, total_removed) for cached dates only.
+            Tuple of (total_added, total_removed, total_commits) for cached dates only.
         """
         conn = self._ensure_connected()
 
@@ -96,12 +114,13 @@ class GitStatsCache:
         effective_end = min(end_date, date.today() - timedelta(days=1))
 
         if effective_end < start_date:
-            return (0, 0)
+            return (0, 0, 0)
 
         result = conn.execute(
             """
             SELECT COALESCE(SUM(added), 0) as total_added,
-                   COALESCE(SUM(removed), 0) as total_removed
+                   COALESCE(SUM(removed), 0) as total_removed,
+                   COALESCE(SUM(commits), 0) as total_commits
             FROM daily_stats
             WHERE repo_path = ?
               AND date >= ?
@@ -110,7 +129,7 @@ class GitStatsCache:
             (str(repo_path.resolve()), start_date.isoformat(), effective_end.isoformat()),
         ).fetchone()
 
-        return (result["total_added"], result["total_removed"])
+        return (result["total_added"], result["total_removed"], result["total_commits"])
 
     def get_cached_dates(
         self,
@@ -198,7 +217,7 @@ class GitStatsCache:
         Args:
             repo_path: Absolute path to the repository.
             day: The date these stats are for.
-            stats: GitStats with added and removed counts.
+            stats: GitStats with added, removed, and commits counts.
         """
         # Safety check: never cache today
         if day >= date.today():
@@ -209,10 +228,10 @@ class GitStatsCache:
 
         conn.execute(
             """
-            INSERT OR REPLACE INTO daily_stats (repo_path, date, added, removed)
-            VALUES (?, ?, ?, ?)
+            INSERT OR REPLACE INTO daily_stats (repo_path, date, added, removed, commits)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (str(repo_path.resolve()), day.isoformat(), stats.added, stats.removed),
+            (str(repo_path.resolve()), day.isoformat(), stats.added, stats.removed, stats.commits),
         )
         conn.commit()
 
@@ -235,7 +254,7 @@ class GitStatsCache:
 
         # Filter out today and future dates
         valid_entries = [
-            (str(repo_path.resolve()), day.isoformat(), stats.added, stats.removed)
+            (str(repo_path.resolve()), day.isoformat(), stats.added, stats.removed, stats.commits)
             for day, stats in daily_stats.items()
             if day < today
         ]
@@ -245,8 +264,8 @@ class GitStatsCache:
 
         conn.executemany(
             """
-            INSERT OR REPLACE INTO daily_stats (repo_path, date, added, removed)
-            VALUES (?, ?, ?, ?)
+            INSERT OR REPLACE INTO daily_stats (repo_path, date, added, removed, commits)
+            VALUES (?, ?, ?, ?, ?)
             """,
             valid_entries,
         )

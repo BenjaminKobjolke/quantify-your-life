@@ -11,7 +11,16 @@ and to centralize formatting logic.
 from quantify.services.stats_calculator import TimeStats
 
 # Re-export TimeStats for backwards compatibility
-__all__ = ["TimeStats", "format_duration", "format_trend", "format_distance", "format_lines"]
+__all__ = [
+    "TimeStats",
+    "format_duration",
+    "format_trend",
+    "format_distance",
+    "format_lines",
+    "format_commits",
+    "format_projects",
+    "format_value",
+]
 
 
 def format_duration(seconds: float) -> str:
@@ -75,12 +84,40 @@ def format_lines(value: float) -> str:
     return f"{int(value):,} lines"
 
 
+def format_commits(value: float) -> str:
+    """Format commit count with thousands separator.
+
+    Args:
+        value: Number of commits.
+
+    Returns:
+        Formatted string like "1,234 commits" or "1 commit".
+    """
+    count = int(value)
+    suffix = "commit" if count == 1 else "commits"
+    return f"{count:,} {suffix}"
+
+
+def format_projects(value: float) -> str:
+    """Format project count with thousands separator.
+
+    Args:
+        value: Number of projects.
+
+    Returns:
+        Formatted string like "15 projects" or "1 project".
+    """
+    count = int(value)
+    suffix = "project" if count == 1 else "projects"
+    return f"{count:,} {suffix}"
+
+
 def format_value(value: float, unit: str, unit_label: str) -> str:
     """Format a value based on its unit type.
 
     Args:
         value: The value to format.
-        unit: Unit type ("time", "distance", or "lines").
+        unit: Unit type ("time", "distance", "lines", "commits", or "projects").
         unit_label: Unit label for display (e.g., "h", "km", "mi", "lines").
 
     Returns:
@@ -90,5 +127,9 @@ def format_value(value: float, unit: str, unit_label: str) -> str:
         return format_duration(value)
     elif unit == "lines":
         return format_lines(value)
+    elif unit == "commits":
+        return format_commits(value)
+    elif unit == "projects":
+        return format_projects(value)
     else:
         return format_distance(value, unit_label)
