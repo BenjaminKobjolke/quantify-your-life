@@ -95,6 +95,7 @@ def export_config() -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    get_logger()  # Initialize logger to prevent console output
     console = Console()
     base_dir = Path.cwd()
 
@@ -128,6 +129,7 @@ def export() -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    get_logger()  # Initialize logger to prevent console output
     console = Console()
     base_dir = Path.cwd()
 
@@ -167,6 +169,19 @@ def export() -> int:
             count=len(generated_files), path=settings.export.path
         )
         console.print(f"[green]{msg}[/green]")
+
+        # FTP sync if configured
+        if settings.export.ftp_sync and settings.export.ftp_sync.enabled:
+            from quantify.sync.ftp_syncer import FtpSyncer
+
+            console.print("[cyan]Starting FTP sync...[/cyan]")
+            try:
+                syncer = FtpSyncer(settings.export.ftp_sync)
+                syncer.sync(Path(settings.export.path))
+                console.print("[green]FTP sync completed[/green]")
+            except Exception as e:
+                console.print(f"[red]FTP sync failed: {e}[/red]")
+                return 1
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled.[/yellow]")
     finally:

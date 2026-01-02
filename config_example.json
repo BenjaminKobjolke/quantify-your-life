@@ -26,6 +26,16 @@
             {"source": "git_stats", "type": "net", "id": null},
             {"source": "git_stats", "type": "commits", "id": null},
             {"source": "git_stats", "type": "projects_created", "id": null}
-        ]
+        ],
+        "ftp_sync": {
+            "enabled": false,
+            "host": "ftp.example.com",
+            "port": 21,
+            "username": "your_username",
+            "password": "your_password",
+            "remote_path": "/public_html/stats",
+            "passive_mode": true,
+            "timeout": 30
+        }
     }
 }

@@ -282,6 +282,20 @@ class SourcesConfig:
 
 
 @dataclass(frozen=True)
+class FtpSyncSettings:
+    """FTP synchronization settings."""
+
+    enabled: bool
+    host: str
+    username: str
+    password: str
+    remote_path: str
+    port: int = 21
+    passive_mode: bool = True
+    timeout: int = 30
+
+
+@dataclass(frozen=True)
 class ExportEntry:
     """A single entry in the export configuration."""
 
@@ -296,6 +310,7 @@ class ExportSettings:
 
     path: str
     entries: tuple[ExportEntry, ...]
+    ftp_sync: FtpSyncSettings | None = None
 
 
 # Legacy export settings for backwards compatibility
@@ -411,9 +426,26 @@ class Settings:
                         entry_id=entry_data.get("id"),
                     )
                 )
+
+            # FTP sync settings
+            ftp_sync_settings = None
+            ftp_data = export_data.get("ftp_sync")
+            if ftp_data:
+                ftp_sync_settings = FtpSyncSettings(
+                    enabled=ftp_data.get("enabled", False),
+                    host=ftp_data.get("host", ""),
+                    username=ftp_data.get("username", ""),
+                    password=ftp_data.get("password", ""),
+                    remote_path=ftp_data.get("remote_path", ""),
+                    port=ftp_data.get("port", 21),
+                    passive_mode=ftp_data.get("passive_mode", True),
+                    timeout=ftp_data.get("timeout", 30),
+                )
+
             export_settings = ExportSettings(
                 path=export_data.get("path", ""),
                 entries=tuple(entries),
+                ftp_sync=ftp_sync_settings,
             )
 
         return cls(sources=sources_config, export=export_settings)
