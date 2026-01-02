@@ -2,6 +2,7 @@
 
 import logging
 import subprocess
+import threading
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -46,6 +47,7 @@ class GitLogParser:
         self._exclude_extensions = set(exclude_extensions)
         self._exclude_filenames = set(exclude_filenames)
         self._failed_repos: set[Path] = set()  # Cache repos that failed
+        self._lock = threading.Lock()  # Thread safety for _failed_repos
 
     def get_stats(
         self,
@@ -64,8 +66,9 @@ class GitLogParser:
             GitStats with added and removed line counts.
         """
         # Skip repos that previously failed (e.g., no commits)
-        if repo_path in self._failed_repos:
-            return GitStats(added=0, removed=0, commits=0)
+        with self._lock:
+            if repo_path in self._failed_repos:
+                return GitStats(added=0, removed=0, commits=0)
 
         try:
             output = self._run_git_log(repo_path, start_date, end_date)
@@ -73,11 +76,13 @@ class GitLogParser:
         except subprocess.CalledProcessError as e:
             stderr_msg = e.stderr.strip() if e.stderr else "unknown error"
             logger.warning(f"Git error in {repo_path.name}: {stderr_msg}")
-            self._failed_repos.add(repo_path)
+            with self._lock:
+                self._failed_repos.add(repo_path)
             return GitStats(added=0, removed=0, commits=0)
         except subprocess.SubprocessError as e:
             logger.warning(f"Failed to get git stats for {repo_path}: {e}")
-            self._failed_repos.add(repo_path)
+            with self._lock:
+                self._failed_repos.add(repo_path)
             return GitStats(added=0, removed=0, commits=0)
         except FileNotFoundError:
             logger.warning("Git is not installed or not in PATH")
@@ -224,8 +229,9 @@ class GitLogParser:
         Returns:
             Date of the first commit, or None if no commits found.
         """
-        if repo_path in self._failed_repos:
-            return None
+        with self._lock:
+            if repo_path in self._failed_repos:
+                return None
 
         try:
             cmd = [

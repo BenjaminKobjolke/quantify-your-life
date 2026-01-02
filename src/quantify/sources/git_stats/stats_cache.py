@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 
+from quantify.services.db import ThreadLocalDB
 from quantify.sources.git_stats.git_log_parser import GitStats
 
 logger = logging.getLogger(__name__)
@@ -13,45 +14,43 @@ logger = logging.getLogger(__name__)
 class GitStatsCache:
     """Caches daily git stats in SQLite to avoid repeated git queries.
 
-    The cache stores (repo_path, date, added, removed) tuples with a composite
-    primary key on (repo_path, date). This allows efficient lookups and avoids
-    re-querying git for historical data that never changes.
-
     Design decisions:
     - Today's date is NEVER cached (commits may still be added)
     - Unbounded queries (no start_date) skip the cache entirely
     - Empty results are cached as (0, 0) to avoid re-querying empty repos/days
     - repo_path is stored as absolute path string for consistency
+
+    Thread Safety:
+    - Uses ThreadLocalDB for thread-local connections
+    - SQLite handles file-level locking for concurrent writes
+    """
+
+    # SQL Queries
+    _SQL_SUM = """
+        SELECT COALESCE(SUM(added), 0) as total_added,
+               COALESCE(SUM(removed), 0) as total_removed,
+               COALESCE(SUM(commits), 0) as total_commits
+        FROM daily_stats
+        WHERE repo_path = ? AND date >= ? AND date <= ?
+    """
+
+    _SQL_DATES = """
+        SELECT date FROM daily_stats
+        WHERE repo_path = ? AND date >= ? AND date <= ?
+    """
+
+    _SQL_UPSERT = """
+        INSERT OR REPLACE INTO daily_stats (repo_path, date, added, removed, commits)
+        VALUES (?, ?, ?, ?, ?)
     """
 
     def __init__(self, db_path: Path) -> None:
-        """Initialize cache with database path.
+        """Initialize cache with database path."""
+        self._db = ThreadLocalDB(db_path, self._init_schema)
 
-        Args:
-            db_path: Path to SQLite database file. Parent directories
-                     will be created if they don't exist.
-        """
-        self._db_path = db_path
-        self._conn: sqlite3.Connection | None = None
-
-    def _ensure_connected(self) -> sqlite3.Connection:
-        """Ensure database connection exists and schema is created.
-
-        Returns:
-            Active database connection.
-        """
-        if self._conn is None:
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self._db_path))
-            self._conn.row_factory = sqlite3.Row
-            self._create_schema()
-        return self._conn
-
-    def _create_schema(self) -> None:
-        """Create database tables if they don't exist."""
-        conn = self._conn
-        assert conn is not None
-
+    @staticmethod
+    def _init_schema(conn: sqlite3.Connection) -> None:
+        """Create tables and migrate schema."""
         conn.execute("""
             CREATE TABLE IF NOT EXISTS daily_stats (
                 repo_path TEXT NOT NULL,
@@ -63,31 +62,30 @@ class GitStatsCache:
             )
         """)
         conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_daily_stats_date
-            ON daily_stats(date)
+            CREATE INDEX IF NOT EXISTS idx_daily_stats_date ON daily_stats(date)
         """)
         conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_daily_stats_repo
-            ON daily_stats(repo_path)
+            CREATE INDEX IF NOT EXISTS idx_daily_stats_repo ON daily_stats(repo_path)
         """)
         conn.commit()
 
-        # Migrate existing tables: add commits column if missing
-        self._migrate_schema()
-
-    def _migrate_schema(self) -> None:
-        """Migrate existing database schema to add new columns."""
-        conn = self._conn
-        assert conn is not None
-
-        # Check if commits column exists
+        # Migrate: add commits column if missing
         cursor = conn.execute("PRAGMA table_info(daily_stats)")
         columns = {row["name"] for row in cursor.fetchall()}
-
         if "commits" not in columns:
             conn.execute("ALTER TABLE daily_stats ADD COLUMN commits INTEGER NOT NULL DEFAULT 0")
             conn.commit()
             logger.info("Migrated daily_stats table: added commits column")
+
+    @staticmethod
+    def _repo_key(repo_path: Path) -> str:
+        """Convert repo path to cache key."""
+        return str(repo_path.resolve())
+
+    @staticmethod
+    def _yesterday() -> date:
+        """Get yesterday's date (last cacheable day)."""
+        return date.today() - timedelta(days=1)
 
     def get_cached_sum(
         self,
@@ -97,39 +95,18 @@ class GitStatsCache:
     ) -> tuple[int, int, int]:
         """Get sum of cached added/removed/commits for date range.
 
-        Only returns data for dates that ARE in the cache. Missing dates
-        are not included in the sum - caller must handle those separately.
-
-        Args:
-            repo_path: Absolute path to the repository.
-            start_date: First day to include (inclusive).
-            end_date: Last day to include (inclusive).
-
-        Returns:
-            Tuple of (total_added, total_removed, total_commits) for cached dates only.
+        Only returns data for dates in cache. Missing dates excluded.
         """
-        conn = self._ensure_connected()
-
-        # Exclude today from cache query - always re-query today
-        effective_end = min(end_date, date.today() - timedelta(days=1))
-
+        effective_end = min(end_date, self._yesterday())
         if effective_end < start_date:
             return (0, 0, 0)
 
-        result = conn.execute(
-            """
-            SELECT COALESCE(SUM(added), 0) as total_added,
-                   COALESCE(SUM(removed), 0) as total_removed,
-                   COALESCE(SUM(commits), 0) as total_commits
-            FROM daily_stats
-            WHERE repo_path = ?
-              AND date >= ?
-              AND date <= ?
-            """,
-            (str(repo_path.resolve()), start_date.isoformat(), effective_end.isoformat()),
+        row = self._db.execute(
+            self._SQL_SUM,
+            (self._repo_key(repo_path), start_date.isoformat(), effective_end.isoformat()),
         ).fetchone()
 
-        return (result["total_added"], result["total_removed"], result["total_commits"])
+        return (row["total_added"], row["total_removed"], row["total_commits"])
 
     def get_cached_dates(
         self,
@@ -137,26 +114,10 @@ class GitStatsCache:
         start_date: date,
         end_date: date,
     ) -> set[date]:
-        """Get set of dates that are already cached for this repo.
-
-        Args:
-            repo_path: Absolute path to the repository.
-            start_date: First day to check (inclusive).
-            end_date: Last day to check (inclusive).
-
-        Returns:
-            Set of dates that have cached data.
-        """
-        conn = self._ensure_connected()
-
-        rows = conn.execute(
-            """
-            SELECT date FROM daily_stats
-            WHERE repo_path = ?
-              AND date >= ?
-              AND date <= ?
-            """,
-            (str(repo_path.resolve()), start_date.isoformat(), end_date.isoformat()),
+        """Get set of dates already cached for this repo."""
+        rows = self._db.execute(
+            self._SQL_DATES,
+            (self._repo_key(repo_path), start_date.isoformat(), end_date.isoformat()),
         ).fetchall()
 
         return {date.fromisoformat(row["date"]) for row in rows}
@@ -169,39 +130,25 @@ class GitStatsCache:
     ) -> list[date]:
         """Return dates not yet cached for this repo.
 
-        Today is always included in missing dates (never cached).
-        Future dates are excluded.
-
-        Args:
-            repo_path: Absolute path to the repository.
-            start_date: First day to check (inclusive).
-            end_date: Last day to check (inclusive).
-
-        Returns:
-            Sorted list of dates that need to be queried from git.
+        Today is always included (never cached). Future dates excluded.
         """
         today = date.today()
-
-        # Don't look for future dates
         effective_end = min(end_date, today)
 
         if effective_end < start_date:
             return []
 
         # Generate all dates in range
-        all_dates: set[date] = set()
-        current = start_date
-        while current <= effective_end:
-            all_dates.add(current)
-            current += timedelta(days=1)
+        all_dates = {
+            start_date + timedelta(days=i)
+            for i in range((effective_end - start_date).days + 1)
+        }
 
-        # Get cached dates (excluding today which is never considered cached)
+        # Get cached dates (today always considered missing)
         cached = self.get_cached_dates(repo_path, start_date, effective_end)
-        cached.discard(today)  # Today is always "missing"
+        cached.discard(today)
 
-        # Return sorted list of missing dates
-        missing = all_dates - cached
-        return sorted(missing)
+        return sorted(all_dates - cached)
 
     def save_daily_stats(
         self,
@@ -209,91 +156,49 @@ class GitStatsCache:
         day: date,
         stats: GitStats,
     ) -> None:
-        """Save stats for a single day.
-
-        Uses INSERT OR REPLACE to handle updates gracefully.
-        Does NOT save today's date (caller should not call this for today).
-
-        Args:
-            repo_path: Absolute path to the repository.
-            day: The date these stats are for.
-            stats: GitStats with added, removed, and commits counts.
-        """
-        # Safety check: never cache today
+        """Save stats for a single day. Skips today/future."""
         if day >= date.today():
             logger.debug(f"Skipping cache for today or future: {day}")
             return
 
-        conn = self._ensure_connected()
-
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO daily_stats (repo_path, date, added, removed, commits)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (str(repo_path.resolve()), day.isoformat(), stats.added, stats.removed, stats.commits),
+        self._db.execute(
+            self._SQL_UPSERT,
+            (self._repo_key(repo_path), day.isoformat(), stats.added, stats.removed, stats.commits),
         )
-        conn.commit()
+        self._db.commit()
 
     def save_batch(
         self,
         repo_path: Path,
         daily_stats: dict[date, GitStats],
     ) -> None:
-        """Save multiple days of stats in a single transaction.
-
-        More efficient than calling save_daily_stats() repeatedly.
-        Automatically excludes today and future dates.
-
-        Args:
-            repo_path: Absolute path to the repository.
-            daily_stats: Dictionary mapping dates to their stats.
-        """
+        """Save multiple days in a single transaction. Excludes today/future."""
         today = date.today()
-        conn = self._ensure_connected()
+        repo_key = self._repo_key(repo_path)
 
-        # Filter out today and future dates
-        valid_entries = [
-            (str(repo_path.resolve()), day.isoformat(), stats.added, stats.removed, stats.commits)
+        entries = [
+            (repo_key, day.isoformat(), stats.added, stats.removed, stats.commits)
             for day, stats in daily_stats.items()
             if day < today
         ]
 
-        if not valid_entries:
-            return
-
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO daily_stats (repo_path, date, added, removed, commits)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            valid_entries,
-        )
-        conn.commit()
+        if entries:
+            self._db.executemany(self._SQL_UPSERT, entries)
+            self._db.commit()
 
     def clear_repo(self, repo_path: Path) -> None:
-        """Remove all cached data for a repository.
-
-        Useful if repo is deleted or cache becomes corrupted.
-
-        Args:
-            repo_path: Absolute path to the repository.
-        """
-        conn = self._ensure_connected()
-        conn.execute(
+        """Remove all cached data for a repository."""
+        self._db.execute(
             "DELETE FROM daily_stats WHERE repo_path = ?",
-            (str(repo_path.resolve()),),
+            (self._repo_key(repo_path),),
         )
-        conn.commit()
+        self._db.commit()
 
     def clear_all(self) -> None:
-        """Remove all cached data. Use with caution."""
-        conn = self._ensure_connected()
-        conn.execute("DELETE FROM daily_stats")
-        conn.commit()
+        """Remove all cached data."""
+        self._db.execute("DELETE FROM daily_stats")
+        self._db.commit()
 
     def close(self) -> None:
-        """Close the database connection."""
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        """Close current thread's database connection."""
+        self._db.close()

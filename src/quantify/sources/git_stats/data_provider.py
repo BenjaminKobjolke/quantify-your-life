@@ -1,6 +1,8 @@
 """Data provider for git statistics."""
 
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -74,18 +76,35 @@ class GitStatsDataProvider:
         total_commits = 0
         total_repos = len(self._repos)
 
-        for idx, repo in enumerate(self._repos):
-            # Report progress
+        # Skip threading for single repo (avoids nested parallelism)
+        if total_repos == 1:
+            repo = self._repos[0]
             if self._progress_callback:
-                self._progress_callback(repo.name, idx + 1, total_repos)
-
-            # Get stats for this repo (using cache)
+                self._progress_callback(repo.name, 1, 1)
             added, removed, commits = self._get_repo_stats_cached(
                 repo, start_date, effective_end
             )
-            total_added += added
-            total_removed += removed
-            total_commits += commits
+            return float(self._compute_stat(added, removed, commits))
+
+        completed = 0
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {
+                executor.submit(
+                    self._get_repo_stats_cached, repo, start_date, effective_end
+                ): repo
+                for repo in self._repos
+            }
+
+            for future in as_completed(futures):
+                repo = futures[future]
+                completed += 1
+                if self._progress_callback:
+                    self._progress_callback(repo.name, completed, total_repos)
+
+                added, removed, commits = future.result()
+                total_added += added
+                total_removed += removed
+                total_commits += commits
 
         # Return based on stat type
         return float(self._compute_stat(total_added, total_removed, total_commits))
@@ -169,15 +188,32 @@ class GitStatsDataProvider:
         Returns:
             Sum of the selected stat type.
         """
-        total = 0
         total_repos = len(self._repos)
 
-        for idx, repo in enumerate(self._repos):
+        # Skip threading for single repo (avoids nested parallelism)
+        if total_repos == 1:
+            repo = self._repos[0]
             if self._progress_callback:
-                self._progress_callback(repo.name, idx + 1, total_repos)
-
+                self._progress_callback(repo.name, 1, 1)
             stats = self._parser.get_stats(repo, start_date, end_date)
-            total += self._compute_stat(stats.added, stats.removed, stats.commits)
+            return float(self._compute_stat(stats.added, stats.removed, stats.commits))
+
+        total = 0
+        completed = 0
+
+        def process_repo(repo: Path) -> int:
+            stats = self._parser.get_stats(repo, start_date, end_date)
+            return self._compute_stat(stats.added, stats.removed, stats.commits)
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(process_repo, repo): repo for repo in self._repos}
+
+            for future in as_completed(futures):
+                repo = futures[future]
+                completed += 1
+                if self._progress_callback:
+                    self._progress_callback(repo.name, completed, total_repos)
+                total += future.result()
 
         return float(total)
 
@@ -226,6 +262,7 @@ class ProjectsCreatedDataProvider:
         self._parser = git_parser
         self._progress_callback = progress_callback
         self._first_commit_cache: dict[Path, date | None] = {}
+        self._cache_lock = threading.Lock()  # Thread safety for _first_commit_cache
 
     def get_sum(
         self,
@@ -244,29 +281,39 @@ class ProjectsCreatedDataProvider:
         effective_end = end_date if end_date is not None else date.today()
         count = 0
         total_repos = len(self._repos)
+        completed = 0
 
-        for idx, repo in enumerate(self._repos):
-            if self._progress_callback:
-                self._progress_callback(repo.name, idx + 1, total_repos)
-
+        def check_repo(repo: Path) -> int:
             first_commit = self._get_first_commit_date(repo)
             if first_commit is None:
-                continue
-
-            # Check if first commit falls within range
-            in_range = True
+                return 0
             if start_date is not None and first_commit < start_date:
-                in_range = False
+                return 0
             if first_commit > effective_end:
-                in_range = False
+                return 0
+            return 1
 
-            if in_range:
-                count += 1
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(check_repo, repo): repo for repo in self._repos}
+
+            for future in as_completed(futures):
+                repo = futures[future]
+                completed += 1
+                if self._progress_callback:
+                    self._progress_callback(repo.name, completed, total_repos)
+                count += future.result()
 
         return float(count)
 
     def _get_first_commit_date(self, repo: Path) -> date | None:
-        """Get cached first commit date for a repo."""
-        if repo not in self._first_commit_cache:
-            self._first_commit_cache[repo] = self._parser.get_first_commit_date(repo)
-        return self._first_commit_cache[repo]
+        """Get cached first commit date for a repo (thread-safe)."""
+        with self._cache_lock:
+            if repo in self._first_commit_cache:
+                return self._first_commit_cache[repo]
+
+        # Fetch outside lock to avoid blocking other threads
+        first_commit = self._parser.get_first_commit_date(repo)
+
+        with self._cache_lock:
+            self._first_commit_cache[repo] = first_commit
+        return first_commit

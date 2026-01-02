@@ -1,10 +1,20 @@
 """Git statistics data source."""
 
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TextColumn,
+)
 
 from quantify.services.stats_calculator import StatsCalculator, TimeStats
 from quantify.sources.base import DataProvider, DataSource, SelectableItem, SourceInfo
@@ -156,20 +166,9 @@ class GitStatsSource(DataSource):
         provider = self.get_data_provider(item_id, item_type)
         calculator = StatsCalculator()
 
-        # Show progress during calculation
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=self._console,
-            transient=True,
-        ) as progress:
-            self._progress = progress
-            self._task_id = progress.add_task("Scanning repositories...", total=None)
-            try:
-                return calculator.calculate(provider.get_sum)
-            finally:
-                self._progress = None
-                self._task_id = None
+        # Show progress during calculation (total updated by _on_progress callback)
+        with self._progress_context("Scanning repositories..."):
+            return calculator.calculate(provider.get_sum)
 
     def close(self) -> None:
         """Close any resources held by this source."""
@@ -193,6 +192,39 @@ class GitStatsSource(DataSource):
             cache_path = self.CACHE_DIR / self.CACHE_DB_NAME
             self._cache = GitStatsCache(cache_path)
 
+    @contextmanager
+    def _progress_context(
+        self,
+        description: str,
+        total: int | None = None,
+    ) -> Iterator[Progress]:
+        """Create a unified progress display context.
+
+        Displays single line: [spinner] status [bar] X/Y
+
+        Args:
+            description: Initial status text.
+            total: Total count for progress bar, or None for indeterminate.
+
+        Yields:
+            Progress instance for updates.
+        """
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("{task.fields[status]}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            console=self._console,
+            transient=False,
+        ) as progress:
+            self._progress = progress
+            self._task_id = progress.add_task("", total=total, status=description)
+            try:
+                yield progress
+            finally:
+                self._progress = None
+                self._task_id = None
+
     def _on_progress(self, repo_name: str, current: int, total: int) -> None:
         """Callback for progress updates during data provider operations.
 
@@ -201,11 +233,15 @@ class GitStatsSource(DataSource):
             current: Current repository index (1-based).
             total: Total number of repositories.
         """
-        if self._progress is not None and self._task_id is not None:
-            self._progress.update(
-                self._task_id,
-                description=f"Scanning {repo_name} ({current}/{total})...",
-            )
+        if self._progress is None or self._task_id is None:
+            return
+
+        self._progress.update(
+            self._task_id,
+            total=total,
+            completed=current,
+            status=f"Scanning: {repo_name}",
+        )
 
     def get_repos(self) -> list[Path]:
         """Get list of discovered repositories.
@@ -264,39 +300,41 @@ class GitStatsSource(DataSource):
         effective_end = end_date if end_date is not None else date.today()
         repo_stats: list[tuple[Path, int]] = []
 
+        def get_repo_net(repo: Path) -> tuple[Path, int]:
+            if start_date is None:
+                # Unbounded query - use parser directly
+                stats = self._parser.get_stats(repo, start_date, effective_end)
+                return (repo, stats.net)
+            else:
+                # Use cache (create provider without progress callback)
+                provider = GitStatsDataProvider(
+                    [repo],
+                    self._parser,
+                    self.STAT_NET,
+                    self._cache,
+                )
+                return (repo, int(provider.get_sum(start_date, effective_end)))
+
         # Show progress during calculation
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=self._console,
-            transient=True,
-        ) as progress:
-            self._progress = progress
-            self._task_id = progress.add_task("Analyzing repositories...", total=None)
-            total_repos = len(self._repos)
+        total_repos = len(self._repos)
+        with (
+            self._progress_context("Analyzing repositories...", total=total_repos) as progress,
+            ThreadPoolExecutor(max_workers=8) as executor,
+        ):
+            futures = {
+                executor.submit(get_repo_net, repo): repo
+                for repo in self._repos
+            }
 
-            try:
-                for idx, repo in enumerate(self._repos):
-                    self._on_progress(repo.name, idx + 1, total_repos)
-
-                    if start_date is None:
-                        # Unbounded query - use parser directly
-                        stats = self._parser.get_stats(repo, start_date, effective_end)
-                        net = stats.net
-                    else:
-                        # Use cache
-                        provider = GitStatsDataProvider(
-                            [repo],
-                            self._parser,
-                            self.STAT_NET,
-                            self._cache,
-                        )
-                        net = int(provider.get_sum(start_date, effective_end))
-
-                    repo_stats.append((repo, net))
-            finally:
-                self._progress = None
-                self._task_id = None
+            for future in as_completed(futures):
+                repo = futures[future]
+                # Update status with completed repo name and advance progress
+                progress.update(
+                    self._task_id,
+                    status=f"Analyzed: {repo.name}",
+                )
+                progress.advance(self._task_id)
+                repo_stats.append(future.result())
 
         # Sort by net lines descending and limit
         repo_stats.sort(key=lambda x: x[1], reverse=True)
