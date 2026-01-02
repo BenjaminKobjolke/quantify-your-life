@@ -1,0 +1,103 @@
+/**
+ * Top features horizontal bar chart using Chart.js
+ * Reads data from the chart container's data attributes
+ * Supports time (seconds) unit with hours display
+ */
+
+document.addEventListener("DOMContentLoaded", function () {
+    const chartContainer = document.getElementById("top-chart");
+    if (!chartContainer) return;
+
+    const canvas = document.getElementById("top-chart-canvas");
+    if (!canvas) return;
+
+    // Read data from data attributes
+    const labels = JSON.parse(chartContainer.dataset.labels || "[]");
+    const values = JSON.parse(chartContainer.dataset.values || "[]");
+    const unit = chartContainer.dataset.unit || "time";
+    const unitLabel = chartContainer.dataset.unitLabel || "h";
+
+    // Process data based on unit type
+    let displayData;
+    let xAxisLabel;
+    let tooltipFormatter;
+
+    if (unit === "time") {
+        // Convert seconds to hours for display
+        displayData = values.map(function (seconds) {
+            return (seconds / 3600).toFixed(1);
+        });
+        xAxisLabel = "h";
+        tooltipFormatter = function (context) {
+            const hours = parseFloat(context.raw);
+            const h = Math.floor(hours);
+            const m = Math.round((hours - h) * 60);
+            return h + "h " + m + "m";
+        };
+    } else {
+        // Distance or other units - use values directly
+        displayData = values.map(function (val) {
+            return parseFloat(val.toFixed(1));
+        });
+        xAxisLabel = unitLabel;
+        tooltipFormatter = function (context) {
+            return parseFloat(context.raw).toFixed(1) + " " + unitLabel;
+        };
+    }
+
+    const ctx = canvas.getContext("2d");
+
+    new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: unitLabel,
+                    data: displayData,
+                    backgroundColor: "rgba(0, 212, 255, 0.6)",
+                    borderColor: "rgba(0, 212, 255, 1)",
+                    borderWidth: 1,
+                    borderRadius: 4,
+                },
+            ],
+        },
+        options: {
+            indexAxis: "y", // Horizontal bar chart
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false,
+                },
+                tooltip: {
+                    callbacks: {
+                        label: tooltipFormatter,
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    ticks: {
+                        color: "#aaa",
+                        callback: function (value) {
+                            return value + xAxisLabel;
+                        },
+                    },
+                    grid: {
+                        color: "rgba(255, 255, 255, 0.1)",
+                    },
+                },
+                y: {
+                    ticks: {
+                        color: "#aaa",
+                    },
+                    grid: {
+                        color: "rgba(255, 255, 255, 0.1)",
+                    },
+                },
+            },
+        },
+    });
+});

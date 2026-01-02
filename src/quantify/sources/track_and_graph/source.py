@@ -1,5 +1,6 @@
 """Track & Graph data source implementation."""
 
+from datetime import date
 from pathlib import Path
 
 from quantify.db.connection import Database
@@ -11,6 +12,8 @@ from quantify.sources.base import DataProvider, DataSource, SelectableItem, Sour
 from quantify.sources.track_and_graph.data_provider import (
     FeatureDataProvider,
     GroupDataProvider,
+    _date_to_end_of_day_epoch_milli,
+    _date_to_epoch_milli,
 )
 
 
@@ -156,6 +159,52 @@ class TrackAndGraphSource(DataSource):
         provider = self.get_data_provider(item_id, item_type)
         calculator = StatsCalculator()
         return calculator.calculate(provider.get_sum)
+
+    def get_top_features_in_group(
+        self,
+        group_id: int,
+        start_date: date | None,
+        end_date: date,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """Get top N features by value in a group for the given period.
+
+        Args:
+            group_id: ID of the group.
+            start_date: Start of the period (None for all time).
+            end_date: End of the period.
+            limit: Maximum number of features to return.
+
+        Returns:
+            List of (feature_name, value) tuples sorted by value descending.
+        """
+        self._ensure_connected()
+        assert self._features_repo is not None
+        assert self._datapoints_repo is not None
+
+        # Get all features in the group
+        features = self._features_repo.get_by_group_id(group_id)
+        if not features:
+            return []
+
+        feature_ids = [f.id for f in features]
+        feature_names = {f.id: f.name for f in features}
+
+        # Get per-feature sums
+        start_epoch = _date_to_epoch_milli(start_date) if start_date else None
+        end_epoch = _date_to_end_of_day_epoch_milli(end_date)
+
+        sums = self._datapoints_repo.get_sum_by_feature_grouped(
+            feature_ids,
+            start_epoch,
+            end_epoch,
+        )
+
+        # Build result list with names and sort by value descending
+        results = [(feature_names[fid], value) for fid, value in sums.items() if value > 0]
+        results.sort(key=lambda x: x[1], reverse=True)
+
+        return results[:limit]
 
     def close(self) -> None:
         """Close the database connection."""

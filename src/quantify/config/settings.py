@@ -300,8 +300,9 @@ class ExportEntry:
     """A single entry in the export configuration."""
 
     source: str  # "track_and_graph" or "hometrainer"
-    entry_type: str  # "group", "feature", "stats"
+    entry_type: str  # "group", "feature", "stats", "top_features"
     entry_id: int | None  # None for hometrainer
+    period: str | None = None  # For top_features: period key (e.g., "last_7_days")
 
 
 @dataclass(frozen=True)
@@ -424,6 +425,7 @@ class Settings:
                         source=entry_data["source"],
                         entry_type=entry_data["type"],
                         entry_id=entry_data.get("id"),
+                        period=entry_data.get("period"),
                     )
                 )
 

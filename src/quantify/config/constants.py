@@ -89,6 +89,7 @@ class Constants:
     # Main menu options
     MENU_VIEW_STATS: str = "View Statistics"
     MENU_TOP_REPOS: str = "Top 10 Repos"
+    MENU_TOP_FEATURES: str = "Top 10 Features"
     MENU_DATABASE: str = "Database"
     MENU_DEBUG_GIT: str = "Debug Git Exclusions"
     MENU_BACK: str = "← Back"
@@ -108,6 +109,9 @@ class Constants:
     GIT_SHOW_DETAILS: str = "Show details?"
     GIT_NO_PROJECTS_FOUND: str = "No projects created in this period"
     GIT_NO_COMMITS_FOUND: str = "No commits found in this period"
+
+    # Top Features
+    TOP_FEATURES_NO_DATA: str = "No features with data in this period"
 
     # Debug menu
     DEBUG_SELECT_REPO: str = "Select a repository to analyze:"

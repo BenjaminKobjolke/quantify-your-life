@@ -13,6 +13,7 @@ class ExportEntryData:
     source: str
     entry_type: str
     entry_id: int | None
+    period: str | None = None
 
 
 class ConfigWriter:
@@ -130,14 +131,19 @@ class ConfigWriter:
     # New format methods
 
     def add_export_entry(
-        self, source: str, entry_type: str, entry_id: int | None
+        self,
+        source: str,
+        entry_type: str,
+        entry_id: int | None,
+        period: str | None = None,
     ) -> bool:
         """Add an entry to export config.
 
         Args:
             source: Source ID (e.g., "track_and_graph", "hometrainer").
-            entry_type: Entry type ("group", "feature", "stats").
+            entry_type: Entry type ("group", "feature", "stats", "top_features").
             entry_id: Entry ID (None for hometrainer).
+            period: Period key for top_features entries.
 
         Returns:
             True if added, False if already exists.
@@ -154,19 +160,28 @@ class ConfigWriter:
                 entry.get("source") == source
                 and entry.get("type") == entry_type
                 and entry.get("id") == entry_id
+                and entry.get("period") == period
             ):
                 return False
 
-        entries.append({
+        entry_data: dict[str, Any] = {
             "source": source,
             "type": entry_type,
             "id": entry_id,
-        })
+        }
+        if period is not None:
+            entry_data["period"] = period
+
+        entries.append(entry_data)
         self._write_config(config)
         return True
 
     def remove_export_entry(
-        self, source: str, entry_type: str, entry_id: int | None
+        self,
+        source: str,
+        entry_type: str,
+        entry_id: int | None,
+        period: str | None = None,
     ) -> bool:
         """Remove an entry from export config.
 
@@ -174,6 +189,7 @@ class ConfigWriter:
             source: Source ID.
             entry_type: Entry type.
             entry_id: Entry ID.
+            period: Period key for top_features entries.
 
         Returns:
             True if removed, False if not found.
@@ -189,6 +205,7 @@ class ConfigWriter:
                 entry.get("source") == source
                 and entry.get("type") == entry_type
                 and entry.get("id") == entry_id
+                and entry.get("period") == period
             ):
                 entries.pop(i)
                 self._write_config(config)
@@ -227,6 +244,7 @@ class ConfigWriter:
                     entry.get("source", ""),
                     entry.get("type", ""),
                     entry.get("id"),
+                    entry.get("period"),
                 )
             )
         return entries

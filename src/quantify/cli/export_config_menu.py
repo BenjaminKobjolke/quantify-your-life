@@ -8,6 +8,7 @@ from typing import cast
 import questionary
 from rich.console import Console
 
+from quantify.cli.handlers.period_selector import get_period_label, select_period
 from quantify.config.config_writer import ConfigWriter
 from quantify.config.constants import Constants
 from quantify.sources.base import DataSource, SelectableItem
@@ -42,9 +43,10 @@ class ExportEntry:
     """Represents a configured export entry."""
 
     source: str
-    entry_type: str  # "group", "feature", "stats"
+    entry_type: str  # "group", "feature", "stats", "top_features"
     entry_id: int | None
     name: str
+    period: str | None = None
 
 
 class ExportConfigMenu:
@@ -159,7 +161,7 @@ class ExportConfigMenu:
             else:
                 msg = Constants.EXPORT_ALREADY_EXISTS.format(name=selected.name)
                 self._console.print(f"[yellow]{msg}[/yellow]")
-        else:
+        elif entry_type == Constants.EXPORT_TYPE_FEATURE:
             items = source.get_features()
             if not items:
                 self._console.print(f"[red]{Constants.ERROR_NO_FEATURES}[/red]")
@@ -175,6 +177,36 @@ class ExportConfigMenu:
             else:
                 msg = Constants.EXPORT_ALREADY_EXISTS.format(name=selected.name)
                 self._console.print(f"[yellow]{msg}[/yellow]")
+        elif entry_type == Constants.MENU_TOP_FEATURES:
+            self._add_top_features_entry(source)
+
+    def _add_top_features_entry(self, source: TrackAndGraphSource) -> None:
+        """Add a Top Features entry."""
+        # Select group
+        items = source.get_groups()
+        if not items:
+            self._console.print(f"[red]{Constants.ERROR_NO_GROUPS}[/red]")
+            return
+
+        selected = self._select_item(items, Constants.EXPORT_SELECT_GROUP)
+        if selected is None:
+            return
+
+        # Select period
+        period_key = select_period()
+        if period_key is None:
+            return
+
+        period_label = get_period_label(period_key)
+
+        if self._config_writer.add_export_entry(
+            source.info.id, "top_features", selected.id, period_key
+        ):
+            msg = f'Added Top Features for "{selected.name}" ({period_label}) to export config'
+            self._console.print(f"[green]{msg}[/green]")
+        else:
+            msg = f'Top Features for "{selected.name}" ({period_label}) is already in export config'
+            self._console.print(f"[yellow]{msg}[/yellow]")
 
     def _add_hometrainer_entry(self, source: HometrainerSource) -> None:
         """Add a Hometrainer entry."""
@@ -217,7 +249,11 @@ class ExportConfigMenu:
         """
         result = questionary.select(
             Constants.EXPORT_TYPE_TITLE,
-            choices=[Constants.EXPORT_TYPE_GROUP, Constants.EXPORT_TYPE_FEATURE],
+            choices=[
+                Constants.EXPORT_TYPE_GROUP,
+                Constants.EXPORT_TYPE_FEATURE,
+                Constants.MENU_TOP_FEATURES,
+            ],
         ).ask()
         return cast(str | None, result)
 
@@ -247,7 +283,7 @@ class ExportConfigMenu:
             return
 
         self._config_writer.remove_export_entry(
-            selected.source, selected.entry_type, selected.entry_id
+            selected.source, selected.entry_type, selected.entry_id, selected.period
         )
         self._console.print(f"[green]{Constants.EXPORT_REMOVED.format(name=selected.name)}[/green]")
 
@@ -270,13 +306,19 @@ class ExportConfigMenu:
                         entry_data.entry_type,
                         entry_data.entry_id,
                         name,
+                        entry_data.period,
                     )
                 )
                 continue
 
             # Get item name from source
             if isinstance(source, (TrackAndGraphSource, HometrainerSource)):
-                item_name = source.get_item_name(entry_data.entry_id, entry_data.entry_type)
+                # For top_features, get group name
+                if entry_data.entry_type == "top_features":
+                    item_name = source.get_item_name(entry_data.entry_id, "group")
+                else:
+                    item_name = source.get_item_name(entry_data.entry_id, entry_data.entry_type)
+
                 if item_name:
                     entries.append(
                         ExportEntry(
@@ -284,6 +326,7 @@ class ExportConfigMenu:
                             entry_data.entry_type,
                             entry_data.entry_id,
                             item_name,
+                            entry_data.period,
                         )
                     )
 
@@ -307,6 +350,9 @@ class ExportConfigMenu:
                 title = Constants.EXPORT_LABEL_GROUP.format(name=entry.name, id=entry.entry_id)
             elif entry.entry_type == "feature":
                 title = Constants.EXPORT_LABEL_FEATURE.format(name=entry.name, id=entry.entry_id)
+            elif entry.entry_type == "top_features":
+                period_label = get_period_label(entry.period) if entry.period else "Unknown"
+                title = f"Top Features: {entry.name} ({period_label})"
             else:
                 title = Constants.EXPORT_LABEL_STATS.format(source=source_name, name=entry.name)
 

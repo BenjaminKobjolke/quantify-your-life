@@ -101,3 +101,43 @@ class DataPointsRepository:
         """
         rows = self._db.execute(query, tuple(params))
         return float(rows[0]["total"]) if rows else 0.0
+
+    def get_sum_by_feature_grouped(
+        self,
+        feature_ids: list[int],
+        start_epoch_milli: int | None = None,
+        end_epoch_milli: int | None = None,
+    ) -> dict[int, float]:
+        """Get sum of values for each feature individually within a time range.
+
+        Args:
+            feature_ids: List of feature IDs to sum values for.
+            start_epoch_milli: Start of time range (inclusive). None for no lower bound.
+            end_epoch_milli: End of time range (inclusive). None for no upper bound.
+
+        Returns:
+            Dictionary mapping feature_id to sum of values.
+        """
+        if not feature_ids:
+            return {}
+
+        placeholders = ",".join("?" for _ in feature_ids)
+        conditions = [f"feature_id IN ({placeholders})"]
+        params: list[int] = list(feature_ids)
+
+        if start_epoch_milli is not None:
+            conditions.append("epoch_milli >= ?")
+            params.append(start_epoch_milli)
+
+        if end_epoch_milli is not None:
+            conditions.append("epoch_milli <= ?")
+            params.append(end_epoch_milli)
+
+        query = f"""
+            SELECT feature_id, COALESCE(SUM(value), 0) as total
+            FROM data_points_table
+            WHERE {" AND ".join(conditions)}
+            GROUP BY feature_id
+        """
+        rows = self._db.execute(query, tuple(params))
+        return {row["feature_id"]: float(row["total"]) for row in rows}
