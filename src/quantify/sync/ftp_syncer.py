@@ -28,13 +28,12 @@ class FtpSyncer:
         """
         local = FsTarget(str(local_path))
 
-        ftp_url = (
-            f"ftp://{self._settings.username}:{self._settings.password}"
-            f"@{self._settings.host}:{self._settings.port}{self._settings.remote_path}"
-        )
-
         remote = FTPTarget(
-            ftp_url,
+            path=self._settings.remote_path,
+            host=self._settings.host,
+            port=self._settings.port,
+            username=self._settings.username,
+            password=self._settings.password,
             timeout=self._settings.timeout,
         )
 

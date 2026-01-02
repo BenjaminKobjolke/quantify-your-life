@@ -20,6 +20,11 @@ ProgressCallback = Callable[[str, int, int], None] | None
 class GitStatsDataProvider:
     """Provides aggregated git stats across all repositories with caching."""
 
+    # In-memory session cache for today's stats (shared across instances)
+    # This prevents re-querying git for today's date within the same process run
+    _today_cache: dict[tuple[Path, date], GitStats] = {}
+    _today_cache_lock = threading.Lock()
+
     def __init__(
         self,
         repos: list[Path],
@@ -151,13 +156,27 @@ class GitStatsDataProvider:
         stats_to_cache: dict[date, GitStats] = {}
 
         for day in missing_dates:
+            # Check in-memory session cache for today's stats
+            if day == today:
+                cache_key = (repo, day)
+                with GitStatsDataProvider._today_cache_lock:
+                    if cache_key in GitStatsDataProvider._today_cache:
+                        stats = GitStatsDataProvider._today_cache[cache_key]
+                        missing_added += stats.added
+                        missing_removed += stats.removed
+                        missing_commits += stats.commits
+                        continue
+
             stats = self._parser.get_daily_stats(repo, day)
             missing_added += stats.added
             missing_removed += stats.removed
             missing_commits += stats.commits
 
-            # Only cache historical dates, not today
-            if day < today:
+            # Cache today in memory, historical dates in SQLite
+            if day == today:
+                with GitStatsDataProvider._today_cache_lock:
+                    GitStatsDataProvider._today_cache[(repo, day)] = stats
+            else:
                 stats_to_cache[day] = stats
 
         # 4. Batch save to cache
