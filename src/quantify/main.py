@@ -11,6 +11,7 @@ from quantify.config.config_writer import ConfigWriter
 from quantify.config.constants import Constants
 from quantify.config.settings import ConfigError, Settings
 from quantify.export.html_exporter import HtmlExporter
+from quantify.services.logger import get_logger
 from quantify.sources.git_stats import GitStatsSource
 from quantify.sources.hometrainer import HometrainerSource
 from quantify.sources.registry import SourceRegistry
@@ -61,6 +62,8 @@ def main() -> int:
     Returns:
         Exit code (0 for success, 1 for error).
     """
+    logger = get_logger()
+    logger.info("Application started")
     console = Console()
 
     try:
