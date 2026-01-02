@@ -86,6 +86,7 @@ class Constants:
     # Main menu options
     MENU_VIEW_STATS: str = "View Statistics"
     MENU_TOP_REPOS: str = "Top 10 Repos"
+    MENU_DATABASE: str = "Database"
     MENU_DEBUG_GIT: str = "Debug Git Exclusions"
     MENU_BACK: str = "← Back"
     MENU_EXIT: str = "Exit"
@@ -105,3 +106,10 @@ class Constants:
     DEBUG_EXCLUDED_EXT: str = "Excluded by extension"
     DEBUG_EXCLUDED_NAME: str = "Excluded by filename"
     DEBUG_INCLUDED: str = "Files to be counted"
+
+    # Logging
+    LOG_DIR_NAME: str = "logs"
+    LOG_FILE_NAME: str = "quantify.log"
+    LOG_MAX_BYTES: int = 5 * 1024 * 1024  # 5MB
+    LOG_BACKUP_COUNT: int = 3
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
