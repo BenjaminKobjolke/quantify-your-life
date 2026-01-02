@@ -128,9 +128,7 @@ class ExportConfigMenu:
         if len(sources) == 1:
             return sources[0]
 
-        choices = [
-            questionary.Choice(title=s.info.display_name, value=s) for s in sources
-        ]
+        choices = [questionary.Choice(title=s.info.display_name, value=s) for s in sources]
 
         result = questionary.select(
             Constants.SOURCE_SELECT_TITLE,
@@ -155,12 +153,8 @@ class ExportConfigMenu:
             if selected is None:
                 return
 
-            if self._config_writer.add_export_entry(
-                source.info.id, "group", selected.id
-            ):
-                msg = Constants.EXPORT_ADDED_GROUP.format(
-                    name=selected.name, id=selected.id
-                )
+            if self._config_writer.add_export_entry(source.info.id, "group", selected.id):
+                msg = Constants.EXPORT_ADDED_GROUP.format(name=selected.name, id=selected.id)
                 self._console.print(f"[green]{msg}[/green]")
             else:
                 msg = Constants.EXPORT_ALREADY_EXISTS.format(name=selected.name)
@@ -175,12 +169,8 @@ class ExportConfigMenu:
             if selected is None:
                 return
 
-            if self._config_writer.add_export_entry(
-                source.info.id, "feature", selected.id
-            ):
-                msg = Constants.EXPORT_ADDED_FEATURE.format(
-                    name=selected.name, id=selected.id
-                )
+            if self._config_writer.add_export_entry(source.info.id, "feature", selected.id):
+                msg = Constants.EXPORT_ADDED_FEATURE.format(name=selected.name, id=selected.id)
                 self._console.print(f"[green]{msg}[/green]")
             else:
                 msg = Constants.EXPORT_ALREADY_EXISTS.format(name=selected.name)
@@ -194,9 +184,7 @@ class ExportConfigMenu:
 
         item = items[0]
         if self._config_writer.add_export_entry(source.info.id, "stats", None):
-            self._console.print(
-                f"[green]Added {item.name} to export config[/green]"
-            )
+            self._console.print(f"[green]Added {item.name} to export config[/green]")
         else:
             msg = Constants.EXPORT_ALREADY_EXISTS.format(name=item.name)
             self._console.print(f"[yellow]{msg}[/yellow]")
@@ -215,9 +203,7 @@ class ExportConfigMenu:
             if item is None:
                 return
 
-        if self._config_writer.add_export_entry(
-            source.info.id, item.item_type, item.id
-        ):
+        if self._config_writer.add_export_entry(source.info.id, item.item_type, item.id):
             self._console.print(f"[green]Added {item.name} to export config[/green]")
         else:
             msg = Constants.EXPORT_ALREADY_EXISTS.format(name=item.name)
@@ -235,9 +221,7 @@ class ExportConfigMenu:
         ).ask()
         return cast(str | None, result)
 
-    def _select_item(
-        self, items: list[SelectableItem], prompt: str
-    ) -> SelectableItem | None:
+    def _select_item(self, items: list[SelectableItem], prompt: str) -> SelectableItem | None:
         """Let user select an item.
 
         Args:
@@ -265,9 +249,7 @@ class ExportConfigMenu:
         self._config_writer.remove_export_entry(
             selected.source, selected.entry_type, selected.entry_id
         )
-        self._console.print(
-            f"[green]{Constants.EXPORT_REMOVED.format(name=selected.name)}[/green]"
-        )
+        self._console.print(f"[green]{Constants.EXPORT_REMOVED.format(name=selected.name)}[/green]")
 
     def _get_configured_entries(self) -> list[ExportEntry]:
         """Get all configured export entries with names.
@@ -322,17 +304,11 @@ class ExportConfigMenu:
             source_name = source.info.display_name if source else entry.source
 
             if entry.entry_type == "group":
-                title = Constants.EXPORT_LABEL_GROUP.format(
-                    name=entry.name, id=entry.entry_id
-                )
+                title = Constants.EXPORT_LABEL_GROUP.format(name=entry.name, id=entry.entry_id)
             elif entry.entry_type == "feature":
-                title = Constants.EXPORT_LABEL_FEATURE.format(
-                    name=entry.name, id=entry.entry_id
-                )
+                title = Constants.EXPORT_LABEL_FEATURE.format(name=entry.name, id=entry.entry_id)
             else:
-                title = Constants.EXPORT_LABEL_STATS.format(
-                    source=source_name, name=entry.name
-                )
+                title = Constants.EXPORT_LABEL_STATS.format(source=source_name, name=entry.name)
 
             choices.append(questionary.Choice(title=title, value=entry))
 

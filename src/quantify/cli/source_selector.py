@@ -38,9 +38,7 @@ class SourceSelector:
             return sources[0]
 
         # Multiple sources - let user choose
-        choices = [
-            questionary.Choice(title=s.info.display_name, value=s) for s in sources
-        ]
+        choices = [questionary.Choice(title=s.info.display_name, value=s) for s in sources]
 
         result = questionary.select(
             Constants.SOURCE_SELECT_TITLE,
