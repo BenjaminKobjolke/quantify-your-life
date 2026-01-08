@@ -2,8 +2,10 @@
 
 from typing import TYPE_CHECKING
 
+import questionary
 from rich.console import Console
 
+from quantify.config.constants import Constants
 from quantify.sources.hometrainer import HometrainerSource
 
 if TYPE_CHECKING:
@@ -24,3 +26,8 @@ def handle_hometrainer(console: Console, source: HometrainerSource, menu: "Menu"
         item = items[0]
         stats = source.get_stats(item.id, item.item_type)
         menu._display_stats(item.name, stats, source.info.unit, source.info.unit_label)
+        # Wait for user to press back
+        questionary.select(
+            "Action:",
+            choices=[Constants.MENU_BACK],
+        ).ask()

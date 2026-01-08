@@ -127,9 +127,6 @@ class ExportConfigMenu:
         Returns:
             Selected source or None if cancelled.
         """
-        if len(sources) == 1:
-            return sources[0]
-
         choices = [questionary.Choice(title=s.info.display_name, value=s) for s in sources]
 
         result = questionary.select(
@@ -228,12 +225,9 @@ class ExportConfigMenu:
             self._console.print("[yellow]No items available[/yellow]")
             return
 
-        if len(items) == 1:
-            item = items[0]
-        else:
-            item = self._select_item(items, "Select item:")
-            if item is None:
-                return
+        item = self._select_item(items, "Select item:")
+        if item is None:
+            return
 
         if self._config_writer.add_export_entry(source.info.id, item.item_type, item.id):
             self._console.print(f"[green]Added {item.name} to export config[/green]")
