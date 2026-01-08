@@ -5,9 +5,11 @@ description = "CLI tool to view time statistics from Track & Graph database"
 requires-python = ">=3.11,<3.13"
 dependencies = [
     "jinja2>=3.1.6",
+    "openpyxl>=3.1.0",
     "pyftpsync>=4.0.0",
     "questionary>=2.0.0",
     "rich>=13.0.0",
+    "xlrd>=2.0.0",
 ]
 
 [project.scripts]
