@@ -35,6 +35,7 @@ class FtpSyncer:
             username=self._settings.username,
             password=self._settings.password,
             timeout=self._settings.timeout,
+            extra_opts={"create_folder": True},
         )
 
         opts = {
