@@ -63,6 +63,7 @@ Note: Custom lists replace the defaults entirely. Use the Debug Git Exclusions m
 ## Features
 
 - **Multiple data sources** - Track & Graph, Hometrainer logs, and Git Stats
+- **Multi-project support** - Separate configs for work, personal, etc. with shared global settings
 - View statistics by **Group** (aggregated) or **Feature** (individual tracker)
 - Arrow key navigation for easy selection
 - **HTML Export** with charts for configured entries
@@ -87,7 +88,7 @@ Note: Custom lists replace the defaults entirely. Use the Debug Git Exclusions m
    cp config_example.json config.json
    ```
 
-3. Edit `config.json` with your data source paths:
+3. Edit `config.json` with your data source paths (see [Multi-Project Support](#multi-project-support) for advanced setup):
    ```json
    {
        "sources": {
@@ -176,6 +177,87 @@ This generates HTML files with:
 - Statistics table (same data as CLI)
 - Bar chart visualization
 - Dark theme styling
+
+## Multi-Project Support
+
+Organize different configurations into separate projects, each with its own settings.
+
+### Directory Structure
+
+```
+quantify-your-life/
+  config.json              # Legacy: used if no projects/ folder exists
+  projects/
+    config.json            # Global/shared settings (optional)
+    work/
+      config.json          # Project-specific settings
+    personal/
+      config.json          # Project-specific settings
+```
+
+### How It Works
+
+- **No `projects/` folder**: Uses root `config.json` (legacy behavior, unchanged)
+- **`projects/` folder exists**: Shows interactive project selection menu
+- **Global config** (`projects/config.json`): Shared settings inherited by all projects
+- **Project config** (`projects/<name>/config.json`): Overrides global settings
+
+### Configuration Merging
+
+Project settings override global settings with deep merging:
+- **Dictionaries**: Recursively merged (project values override global)
+- **Arrays**: Replaced entirely (not merged)
+- **Scalars**: Project value overrides global value
+
+**Example global config** (`projects/config.json`):
+```json
+{
+    "sources": {
+        "git_stats": {
+            "author": "Your Name",
+            "root_paths": ["D:/GIT"]
+        }
+    }
+}
+```
+
+**Example project config** (`projects/work/config.json`):
+```json
+{
+    "sources": {
+        "git_stats": {
+            "root_paths": ["D:/GIT/Work"]
+        }
+    },
+    "export": {
+        "path": "D:/exports/work",
+        "entries": [
+            {"source": "git_stats", "type": "net", "id": null}
+        ]
+    }
+}
+```
+
+**Result**: Work project uses author "Your Name" from global, but only scans `D:/GIT/Work`.
+
+### CLI Options
+
+```bash
+# Interactive project selection (when projects/ exists)
+uv run quantify
+
+# Select project directly
+uv run quantify --project work
+uv run quantify -p personal
+
+# List available projects
+uv run quantify --list-projects
+```
+
+### Creating a New Project
+
+1. **Via menu**: Select "Create new project..." when prompted
+2. **Manually**: Create `projects/<name>/config.json` with your settings
 
 ## Example Output
 
