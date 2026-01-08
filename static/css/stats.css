@@ -97,11 +97,11 @@ h1 {
     border-bottom: none;
 }
 
-.trend-positive {
+.stats-table td.value.trend-positive {
     color: var(--accent-green);
 }
 
-.trend-negative {
+.stats-table td.value.trend-negative {
     color: var(--accent-red);
 }
 
