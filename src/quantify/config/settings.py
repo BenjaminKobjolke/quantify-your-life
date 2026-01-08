@@ -21,6 +21,7 @@ class TrackAndGraphConfig:
     """Configuration for Track & Graph data source."""
 
     db_path: str
+    display: dict[str, Any] | None = None  # Display config (hide_rows, show_rows)
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class HometrainerConfig:
 
     logs_path: str
     unit: str = "km"  # "km" or "mi"
+    display: dict[str, Any] | None = None  # Display config (hide_rows, show_rows)
 
 
 @dataclass(frozen=True)
@@ -182,6 +184,26 @@ class GitStatsConfig:
         ".gitattributes",
         ".editorconfig",
     )
+    display: dict[str, Any] | None = None  # Display config (hide_rows, show_rows)
+
+
+@dataclass(frozen=True)
+class ExcelSourceConfig:
+    """Configuration for a single Excel data source."""
+
+    name: str  # Display name (e.g., "Savings", "Weight")
+    file_path: str  # Path to the Excel file
+    tabs: dict[str, str]  # {tab_name: column_range} e.g. {"2024": "K2:K", "2025": "L2:L"}
+    function: str = "sum"  # Aggregation function (currently only "sum")
+    unit_label: str = ""  # Optional unit label (e.g., "EUR", "kg")
+    display: dict[str, Any] | None = None  # Display config (hide_rows, show_rows)
+
+
+@dataclass(frozen=True)
+class ExcelConfig:
+    """Configuration for Excel data sources."""
+
+    sources: tuple[ExcelSourceConfig, ...]  # Multiple Excel sources can be defined
 
 
 @dataclass(frozen=True)
@@ -278,6 +300,7 @@ class SourcesConfig:
     track_and_graph: TrackAndGraphConfig | None = None
     hometrainer: HometrainerConfig | None = None
     git_stats: GitStatsConfig | None = None
+    excel: ExcelConfig | None = None
 
 
 # Export config
@@ -305,6 +328,7 @@ class ExportEntry:
     entry_type: str  # "group", "feature", "stats", "top_features"
     entry_id: int | None  # None for hometrainer
     period: str | None = None  # For top_features: period key (e.g., "last_7_days")
+    title: str | None = None  # Custom page title (uses item name if None)
 
 
 @dataclass(frozen=True)
@@ -439,7 +463,10 @@ class Settings:
         track_and_graph_config = None
         tg_data = sources_data.get("track_and_graph")
         if tg_data and tg_data.get("db_path"):
-            track_and_graph_config = TrackAndGraphConfig(db_path=tg_data["db_path"])
+            track_and_graph_config = TrackAndGraphConfig(
+                db_path=tg_data["db_path"],
+                display=tg_data.get("display"),
+            )
 
         # Hometrainer config
         hometrainer_config = None
@@ -448,6 +475,7 @@ class Settings:
             hometrainer_config = HometrainerConfig(
                 logs_path=ht_data["logs_path"],
                 unit=ht_data.get("unit", "km"),
+                display=ht_data.get("display"),
             )
 
         # Git Stats config
@@ -464,12 +492,32 @@ class Settings:
                 exclude_filenames=tuple(
                     gs_data.get("exclude_filenames", GitStatsConfig.exclude_filenames)
                 ),
+                display=gs_data.get("display"),
             )
+
+        # Excel config
+        excel_config = None
+        excel_data = sources_data.get("excel")
+        if excel_data and excel_data.get("sources"):
+            excel_sources: list[ExcelSourceConfig] = []
+            for src in excel_data["sources"]:
+                excel_sources.append(
+                    ExcelSourceConfig(
+                        name=src["name"],
+                        file_path=src["file_path"],
+                        tabs=src["tabs"],
+                        function=src.get("function", "sum"),
+                        unit_label=src.get("unit_label", ""),
+                        display=src.get("display"),
+                    )
+                )
+            excel_config = ExcelConfig(sources=tuple(excel_sources))
 
         sources_config = SourcesConfig(
             track_and_graph=track_and_graph_config,
             hometrainer=hometrainer_config,
             git_stats=git_stats_config,
+            excel=excel_config,
         )
 
         # Export settings
@@ -484,6 +532,7 @@ class Settings:
                         entry_type=entry_data["type"],
                         entry_id=entry_data.get("id"),
                         period=entry_data.get("period"),
+                        title=entry_data.get("title"),
                     )
                 )
 
@@ -525,6 +574,7 @@ class Settings:
             track_and_graph=TrackAndGraphConfig(db_path=db_path),
             hometrainer=None,
             git_stats=None,
+            excel=None,
         )
 
         # Convert legacy export settings to new format
