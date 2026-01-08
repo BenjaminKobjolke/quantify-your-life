@@ -13,12 +13,12 @@ from quantify.services.stats_calculator import TimeStats
 # Re-export TimeStats for backwards compatibility
 __all__ = [
     "TimeStats",
-    "format_duration",
-    "format_trend",
-    "format_distance",
-    "format_lines",
     "format_commits",
+    "format_distance",
+    "format_duration",
+    "format_lines",
     "format_projects",
+    "format_trend",
     "format_value",
 ]
 

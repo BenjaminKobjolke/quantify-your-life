@@ -177,6 +177,6 @@ class TestProjectInfo:
         # Should raise FrozenInstanceError
         try:
             info.name = "changed"  # type: ignore
-            assert False, "Should have raised an error"
+            raise AssertionError("Should have raised an error")
         except AttributeError:
             pass

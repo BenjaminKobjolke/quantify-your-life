@@ -228,7 +228,10 @@ class HtmlExporter:
             chart_title = display_config.chart.title
         if not chart_title:
             # Generate default title based on chart type
-            chart_type = display_config.chart.chart_type if display_config and display_config.chart else "periods"
+            if display_config and display_config.chart:
+                chart_type = display_config.chart.chart_type
+            else:
+                chart_type = "periods"
             if chart_type == "yearly":
                 chart_title = f"{unit_label.capitalize()} by Year"
             else:

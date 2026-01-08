@@ -1,6 +1,5 @@
 """Interactive CLI menu using questionary."""
 
-from datetime import date
 from typing import cast
 
 import questionary
@@ -219,7 +218,6 @@ class Menu:
                     return f"[red]{trend_str}[/red]"
             return trend_str
 
-        current_year = date.today().year
         rows_added = 0
 
         def add_separator() -> None:
@@ -298,7 +296,10 @@ class Menu:
 
             # Add YoY row after this year if requested and available
             if year in yoy_by_year:
-                prev_year = stats.yearly_totals[idx + 1][0] if idx + 1 < len(stats.yearly_totals) else year - 1
+                if idx + 1 < len(stats.yearly_totals):
+                    prev_year = stats.yearly_totals[idx + 1][0]
+                else:
+                    prev_year = year - 1
 
                 # Check if we should show this YoY row
                 should_show_yoy = show_all_yoy

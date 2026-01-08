@@ -7,6 +7,6 @@ from quantify.cli.handlers.track_and_graph import TrackAndGraphHandler, handle_t
 __all__ = [
     "GitStatsHandler",
     "TrackAndGraphHandler",
-    "handle_track_and_graph",
     "handle_hometrainer",
+    "handle_track_and_graph",
 ]

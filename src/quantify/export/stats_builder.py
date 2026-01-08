@@ -2,7 +2,6 @@
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date
 
 from quantify.config.constants import Constants
 from quantify.services.stats import TimeStats, format_trend, format_value
@@ -49,13 +48,17 @@ def build_stats_rows(
     def should_show(key: str) -> bool:
         return key not in hide_rows
 
-    current_year = date.today().year
-
     # Define all rows with their keys
     all_rows: list[tuple[str, StatsRow]] = [
         # Recent periods
-        ("last_7_days", StatsRow(Constants.PERIOD_LAST_7_DAYS, fmt(stats.last_7_days), key="last_7_days")),
-        ("last_31_days", StatsRow(Constants.PERIOD_LAST_31_DAYS, fmt(stats.last_31_days), key="last_31_days")),
+        (
+            "last_7_days",
+            StatsRow(Constants.PERIOD_LAST_7_DAYS, fmt(stats.last_7_days), key="last_7_days"),
+        ),
+        (
+            "last_31_days",
+            StatsRow(Constants.PERIOD_LAST_31_DAYS, fmt(stats.last_31_days), key="last_31_days"),
+        ),
         ("_sep1", StatsRow("", "", is_separator=True)),
         # Averages
         ("avg_per_day_last_30_days", StatsRow(
@@ -85,17 +88,31 @@ def build_stats_rows(
 
     # Build yearly totals dynamically from stats.yearly_totals
     show_all_yoy = display_config.show_all_yoy if display_config else False
-    yearly_rows = _build_yearly_rows(stats, fmt, show_rows, current_year, show_all_yoy)
+    yearly_rows = _build_yearly_rows(stats, fmt, show_rows, show_all_yoy)
     all_rows.extend(yearly_rows)
 
     all_rows.append(("_sep4", StatsRow("", "", is_separator=True)))
 
     # Standard periods
     all_rows.extend([
-        ("this_week", StatsRow(Constants.PERIOD_THIS_WEEK, fmt(stats.this_week), key="this_week")),
-        ("this_month", StatsRow(Constants.PERIOD_THIS_MONTH, fmt(stats.this_month), key="this_month")),
-        ("last_month", StatsRow(Constants.PERIOD_LAST_MONTH, fmt(stats.last_month), key="last_month")),
-        ("last_12_months", StatsRow(Constants.PERIOD_LAST_12_MONTHS, fmt(stats.last_12_months), key="last_12_months")),
+        (
+            "this_week",
+            StatsRow(Constants.PERIOD_THIS_WEEK, fmt(stats.this_week), key="this_week"),
+        ),
+        (
+            "this_month",
+            StatsRow(Constants.PERIOD_THIS_MONTH, fmt(stats.this_month), key="this_month"),
+        ),
+        (
+            "last_month",
+            StatsRow(Constants.PERIOD_LAST_MONTH, fmt(stats.last_month), key="last_month"),
+        ),
+        (
+            "last_12_months",
+            StatsRow(
+                Constants.PERIOD_LAST_12_MONTHS, fmt(stats.last_12_months), key="last_12_months"
+            ),
+        ),
         ("total", StatsRow(Constants.PERIOD_TOTAL, fmt(stats.total), key="total")),
     ])
 
@@ -124,7 +141,6 @@ def _build_yearly_rows(
     stats: TimeStats,
     fmt: Callable[[float], str],
     show_rows: Sequence[str],
-    current_year: int,
     show_all_yoy: bool = False,
 ) -> list[tuple[str, StatsRow]]:
     """Build yearly total rows dynamically from stats.yearly_totals.
@@ -133,7 +149,6 @@ def _build_yearly_rows(
         stats: Statistics data with yearly_totals and yoy_percentages.
         fmt: Formatting function for values.
         show_rows: Rows to show (for YoY percentages).
-        current_year: Current year for label generation.
         show_all_yoy: If True, show YoY percentage after every year.
 
     Returns:
@@ -165,7 +180,10 @@ def _build_yearly_rows(
         # Add YoY row after this year if requested and available
         if year in yoy_by_year:
             yoy_key = f"yoy_{year}"
-            prev_year = stats.yearly_totals[idx + 1][0] if idx + 1 < len(stats.yearly_totals) else year - 1
+            if idx + 1 < len(stats.yearly_totals):
+                prev_year = stats.yearly_totals[idx + 1][0]
+            else:
+                prev_year = year - 1
 
             # Check if we should show this YoY row
             should_show_yoy = show_all_yoy

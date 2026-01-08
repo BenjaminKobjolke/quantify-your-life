@@ -5,7 +5,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from quantify.sources.git_stats.git_log_parser import GitLogParser, GitStats
 
@@ -22,7 +22,7 @@ class GitStatsDataProvider:
 
     # In-memory session cache for today's stats (shared across instances)
     # This prevents re-querying git for today's date within the same process run
-    _today_cache: dict[tuple[Path, date], GitStats] = {}
+    _today_cache: ClassVar[dict[tuple[Path, date], GitStats]] = {}
     _today_cache_lock = threading.Lock()
 
     def __init__(

@@ -182,7 +182,8 @@ def test_export_skips_missing_sources(
 
     # Create minimal templates
     (templates_dir / "stats.html").write_text("<html></html>")
-    (templates_dir / "index.html").write_text("<html>{% for e in entries %}{{ e.name }}{% endfor %}</html>")
+    index_content = "<html>{% for e in entries %}{{ e.name }}{% endfor %}</html>"
+    (templates_dir / "index.html").write_text(index_content)
 
     # Empty registry
     registry = SourceRegistry()
@@ -230,7 +231,8 @@ def test_export_hometrainer_format(
 </body>
 </html>"""
     (templates_dir / "stats.html").write_text(template_content)
-    (templates_dir / "index.html").write_text("<html>{% for e in entries %}{{ e.name }}{% endfor %}</html>")
+    index_content = "<html>{% for e in entries %}{{ e.name }}{% endfor %}</html>"
+    (templates_dir / "index.html").write_text(index_content)
 
     # Create hometrainer mock source
     ht_source = MagicMock(spec=DataSource)
