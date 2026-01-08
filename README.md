@@ -4,75 +4,28 @@ CLI tool to view statistics from multiple data sources, including the [Track & G
 
 ## Supported Data Sources
 
-### Track & Graph
-
-Reads the SQLite database exported from [Track & Graph](https://github.com/SamAmco/track-and-graph), a free and open-source Android app for tracking and visualizing personal data. Track & Graph allows you to log various metrics (time, counts, values) and create custom graphs to analyze your habits and patterns.
-
-### Hometrainer
-
-Reads daily exercise logs stored as text files. Each file contains a single distance value (in miles) for that day.
-
-**Log format:**
-- Location: `{logs_path}/{YYYY}/{YYYY_MM_DD}.txt`
-- Content: Single float value (e.g., `5.2`)
-- Example: `Hometrainer_Logs/2024/2024_01_15.txt` containing `8.5`
-
-### Git Stats
-
-Analyzes git repositories to track lines added, removed, and commits over time. Scans all repositories under configured root paths and caches results for fast subsequent queries.
-
-**Tracked metrics:**
-- Lines Added / Removed / Net
-- Commits
-- Projects Created (first commit date)
-
-**Default exclusions** (to focus on meaningful code changes):
-
-| Category | Excluded | Reason |
-|----------|----------|--------|
-| **Directories** | `node_modules`, `vendor`, `venv`, `.venv`, `target`, `build`, `dist`, `bin`, `obj` | Dependencies and build output |
-| | `Library`, `Temp`, `Logs` | Unity project cache |
-| | `.idea`, `.vscode`, `.vs` | IDE configuration |
-| | `__pycache__`, `.pytest_cache`, `.mypy_cache` | Python cache |
-| **Extensions** | `.json`, `.xml`, `.yaml`, `.yml`, `.toml` | Config files (often auto-generated) |
-| | `.md`, `.txt`, `.rst` | Documentation |
-| | `.css`, `.scss`, `.html` | Styling/markup |
-| | `.png`, `.jpg`, `.svg`, `.pdf` | Media assets |
-| | `.lock`, `.map` | Generated files |
-| | `.meta` | Unity metadata |
-| **Filenames** | `package-lock.json`, `yarn.lock`, `poetry.lock`, etc. | Lock files |
-| | `.gitignore`, `.editorconfig` | Config files |
-
-**Customizing exclusions** in `config.json`:
-```json
-{
-    "sources": {
-        "git_stats": {
-            "author": "Your Name",
-            "root_paths": ["D:/projects"],
-            "exclude_dirs": ["node_modules", "custom_dir"],
-            "exclude_extensions": [".json", ".custom"],
-            "exclude_filenames": ["package-lock.json"]
-        }
-    }
-}
-```
-
-Note: Custom lists replace the defaults entirely. Use the Debug Git Exclusions menu to see what files are being counted in each repository.
+| Source | Description | Documentation |
+|--------|-------------|---------------|
+| **Track & Graph** | SQLite database from the [Track & Graph](https://github.com/SamAmco/track-and-graph) Android app | [docs/sources/track-and-graph.md](docs/sources/track-and-graph.md) |
+| **Hometrainer** | Daily exercise distance logs stored as text files | [docs/sources/hometrainer.md](docs/sources/hometrainer.md) |
+| **Git Stats** | Git repository analysis (lines added/removed, commits, projects created) | [docs/sources/git-stats.md](docs/sources/git-stats.md) |
+| **Excel** | Excel files (.xls/.xlsx) with yearly tab structure | [docs/sources/excel.md](docs/sources/excel.md) |
 
 ## Features
 
-- **Multiple data sources** - Track & Graph, Hometrainer logs, and Git Stats
+- **Multiple data sources** - Track & Graph, Hometrainer logs, Git Stats, and Excel files
 - **Multi-project support** - Separate configs for work, personal, etc. with shared global settings
 - View statistics by **Group** (aggregated) or **Feature** (individual tracker)
 - Arrow key navigation for easy selection
 - **HTML Export** with charts for configured entries
 - **Unit support** - Time (hours/minutes) and distance (km/mi)
+- **Configurable display** - Custom number of years, YoY percentages, chart types and titles
 - Comprehensive statistics:
   - Last 7 days / Last 31 days
   - Average per day (last 30 days, last 12 months, this year, last year)
   - Trend comparison vs previous 30 days
   - This week / This month / Last month / Last 12 months / Total
+  - Configurable yearly totals with year-over-year comparisons
 
 ## Requirements
 
@@ -166,6 +119,17 @@ Export configuration is stored in `config.json`:
 }
 ```
 
+**Export entry options:**
+- `source` - Data source ID (required)
+- `type` - Entry type: `"group"`, `"feature"`, `"stats"`, `"top_features"` (required)
+- `id` - Item ID, or `null` for sources with single stats (required)
+- `title` - Custom page title (optional, defaults to item name)
+
+Example with custom title:
+```json
+{"source": "excel", "type": "stats", "id": 1, "title": "Revenue Stats"}
+```
+
 #### 2. Run Export
 
 **Windows:** Double-click `export.bat` or run:
@@ -177,6 +141,40 @@ This generates HTML files with:
 - Statistics table (same data as CLI)
 - Bar chart visualization
 - Dark theme styling
+
+#### 3. Display Configuration (Optional)
+
+Customize how statistics are displayed per source using the `display` object in source configuration:
+
+```json
+{
+    "sources": {
+        "excel": {
+            "file_path": "C:/path/to/data.xlsx",
+            "display": {
+                "show_years": 7,
+                "show_all_yoy": true,
+                "chart": {
+                    "type": "yearly",
+                    "title": "Revenue by Year"
+                }
+            }
+        }
+    }
+}
+```
+
+**Display options:**
+- `show_years` - Number of years to display (default: 3)
+- `show_all_yoy` - Show year-over-year percentage after every year (default: false)
+- `hide_rows` - Array of row keys to hide (e.g., `["last_7_days", "this_week"]`)
+- `show_rows` - Array of additional rows to show (e.g., `["yoy_this_vs_last"]`)
+
+**Chart options:**
+- `chart.type` - Chart type: `"periods"` (default) or `"yearly"`
+  - `"periods"` - Shows Last 7d, This Week, This Month, Last Month, Last 31d
+  - `"yearly"` - Shows yearly totals as bar chart
+- `chart.title` - Custom chart title (auto-generated if not set)
 
 ## Multi-Project Support
 
@@ -259,67 +257,6 @@ uv run quantify --list-projects
 1. **Via menu**: Select "Create new project..." when prompted
 2. **Manually**: Create `projects/<name>/config.json` with your settings
 
-## Example Output
-
-### Track & Graph (Time)
-
-```
-? Select data source: Track & Graph
-? How would you like to view statistics? By Feature
-? Select a feature: Exercise
-
-        Statistics for: Exercise
-┌─────────────────────────────┬──────────┐
-│ Period                      │    Value │
-├─────────────────────────────┼──────────┤
-│ Last 7 days                 │   5h 23m │
-│ Last 31 days                │  22h 15m │
-│                             │          │
-│ Avg/day (last 30 days)      │      45m │
-│ vs previous 30 days         │   +15.2% │
-│                             │          │
-│ Avg/day (last 12 months)    │      38m │
-│ Avg/day (this year)         │      42m │
-│ Avg/day (last year)         │      35m │
-│                             │          │
-│ This week                   │   2h 30m │
-│ This month                  │   8h 45m │
-│ Last month                  │  12h 20m │
-│ Last 12 months              │ 230h 15m │
-│ Total                       │ 450h 30m │
-└─────────────────────────────┴──────────┘
-```
-
-### Hometrainer (Distance)
-
-```
-? Select data source: Hometrainer
-
-     Statistics for: Hometrainer (km)
-┌─────────────────────────────┬──────────┐
-│ Period                      │    Value │
-├─────────────────────────────┼──────────┤
-│ Last 7 days                 │  42.5 km │
-│ Last 31 days                │ 185.2 km │
-│                             │          │
-│ Avg/day (last 30 days)      │   6.2 km │
-│ vs previous 30 days         │   +8.3%  │
-│                             │          │
-│ ...                         │      ... │
-└─────────────────────────────┴──────────┘
-```
-
-## Backwards Compatibility
-
-The old config format with `db_path` at the root level is still supported:
-```json
-{
-    "db_path": "C:/path/to/track_and_graph.db"
-}
-```
-
-This is automatically converted to the new format internally.
-
 ## Development
 
 ### Run linting
@@ -344,10 +281,6 @@ uv run pytest
 3. Implement `DataProvider` protocol for your data format
 4. Add configuration dataclass to `config/settings.py`
 5. Register in `main.py`'s `_create_source_registry()`
-
-## Test SQL
-sqlite3 "C:\Users\USERNAME\.quantify-your-life\git_stats_cache.db" "SELECT repo_path, date, added, removed, commits FROM daily_stats WHERE repo_path LIKE '%quantify-your-life%' ORDER BY date DESC
-LIMIT 20"
 
 ## License
 
