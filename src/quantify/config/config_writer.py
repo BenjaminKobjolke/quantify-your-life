@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from quantify.utils.json_utils import JsonUtils
+
 
 @dataclass
 class ExportEntryData:
@@ -21,18 +23,28 @@ class ConfigWriter:
 
     Supports both legacy format (groups/features arrays) and
     new format (entries array with source).
+
+    When a global_config_path is provided, merged configs are used
+    for reading (display purposes), but writes only go to the
+    project-specific config_path.
     """
 
-    def __init__(self, config_path: Path) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        global_config_path: Path | None = None,
+    ) -> None:
         """Initialize config writer.
 
         Args:
-            config_path: Path to config.json file.
+            config_path: Path to config.json file (project-specific).
+            global_config_path: Optional path to global config for merging.
         """
         self._config_path = config_path
+        self._global_config_path = global_config_path
 
     def _read_config(self) -> dict[str, Any]:
-        """Read current config from file.
+        """Read current config from file (project-specific only).
 
         Returns:
             Config dictionary.
@@ -43,6 +55,26 @@ class ConfigWriter:
         with open(self._config_path, encoding="utf-8") as f:
             result: dict[str, Any] = json.load(f)
             return result
+
+    def _read_merged_config(self) -> dict[str, Any]:
+        """Read merged config (global + project) for display purposes.
+
+        If no global config is configured, returns just the project config.
+
+        Returns:
+            Merged config dictionary.
+        """
+        if not self._global_config_path or not self._global_config_path.exists():
+            return self._read_config()
+
+        if not self._config_path.exists():
+            # Only global config exists
+            with open(self._global_config_path, encoding="utf-8") as f:
+                result: dict[str, Any] = json.load(f)
+                return result
+
+        # Both exist - merge them
+        return JsonUtils.load_and_merge(self._global_config_path, self._config_path)
 
     def _write_config(self, config: dict[str, Any]) -> None:
         """Write config to file.
@@ -216,10 +248,12 @@ class ConfigWriter:
     def get_export_entries(self) -> list[ExportEntryData]:
         """Get all configured export entries.
 
+        Uses merged config (global + project) for display purposes.
+
         Returns:
             List of export entries.
         """
-        config = self._read_config()
+        config = self._read_merged_config()
 
         # Handle legacy format
         if not self._is_new_format(config):
@@ -337,9 +371,11 @@ class ConfigWriter:
     def get_export_path(self) -> str:
         """Get configured export path.
 
+        Uses merged config (global + project) for display purposes.
+
         Returns:
             Export path or empty string if not set.
         """
-        config = self._read_config()
+        config = self._read_merged_config()
         path: str = config.get("export", {}).get("path", "")
         return path

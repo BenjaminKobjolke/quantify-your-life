@@ -151,3 +151,14 @@ class Constants:
     LOG_MAX_BYTES: int = 5 * 1024 * 1024  # 5MB
     LOG_BACKUP_COUNT: int = 3
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+    # Project management
+    PROJECT_SELECT_TITLE: str = "Select a project:"
+    PROJECT_CREATE_NEW: str = "Create new project..."
+    PROJECT_USE_LEGACY: str = "Use root config.json"
+    PROJECT_ENTER_NAME: str = "Enter project name:"
+    PROJECT_CREATED: str = "Created project: {name}"
+    PROJECT_NOT_FOUND: str = "Project not found: {name}"
+    PROJECT_NO_PROJECTS: str = "No projects found in projects/ directory"
+    PROJECT_NO_CONFIG_SUFFIX: str = " (no config)"
+    PROJECTS_DIR_NAME: str = "projects"

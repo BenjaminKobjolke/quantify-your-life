@@ -1,5 +1,6 @@
 """Main entry point for the CLI application."""
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -7,8 +8,10 @@ from rich.console import Console
 
 from quantify.cli.export_config_menu import ExportConfigMenu
 from quantify.cli.menu import Menu
+from quantify.cli.project_selector import ProjectSelector
 from quantify.config.config_writer import ConfigWriter
 from quantify.config.constants import Constants
+from quantify.config.project_manager import ProjectManager
 from quantify.config.settings import ConfigError, Settings
 from quantify.export.html_exporter import HtmlExporter
 from quantify.services.logger import get_logger
@@ -56,6 +59,114 @@ def _create_source_registry(settings: Settings) -> SourceRegistry:
     return registry
 
 
+def _parse_args() -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Returns:
+        Parsed arguments namespace.
+    """
+    parser = argparse.ArgumentParser(
+        description="Quantify Your Life - Statistics viewer and exporter"
+    )
+    parser.add_argument(
+        "--project",
+        "-p",
+        type=str,
+        help="Project name to use (from projects/ directory)",
+    )
+    parser.add_argument(
+        "--list-projects",
+        action="store_true",
+        help="List all available projects and exit",
+    )
+    return parser.parse_args()
+
+
+def _resolve_project_context(
+    args: argparse.Namespace,
+    console: Console,
+) -> tuple[Path, Path | None] | None:
+    """Resolve project and global config paths.
+
+    Args:
+        args: Parsed command-line arguments.
+        console: Console for output.
+
+    Returns:
+        Tuple of (config_dir, global_config_path_or_none), or None to exit.
+    """
+    base_dir = Path.cwd()
+    pm = ProjectManager(base_dir)
+
+    # --list-projects: show and exit
+    if args.list_projects:
+        projects = pm.discover_projects()
+        if not projects:
+            console.print(f"[yellow]{Constants.PROJECT_NO_PROJECTS}[/yellow]")
+        else:
+            console.print("[bold]Available projects:[/bold]")
+            for p in projects:
+                status = "OK" if p.has_config else "missing config"
+                console.print(f"  {p.name} ({status})")
+        return None
+
+    # --project specified
+    if args.project:
+        project_path = pm.get_project_path(args.project)
+        if not project_path.exists():
+            console.print(
+                f"[red]{Constants.PROJECT_NOT_FOUND.format(name=args.project)}[/red]"
+            )
+            return None
+        global_config = pm.get_global_config_path()
+        return project_path, global_config if global_config.exists() else None
+
+    # Check if projects exist for interactive selection
+    if pm.projects_exist():
+        selector = ProjectSelector(pm)
+        selected = selector.select()
+
+        if selected is None:
+            # User chose Exit
+            return None
+
+        if selected == "":
+            # User chose "Use root config.json"
+            return base_dir, None
+
+        project_path = pm.get_project_path(selected)
+        global_config = pm.get_global_config_path()
+        return project_path, global_config if global_config.exists() else None
+
+    # No projects folder, use legacy behavior
+    return base_dir, None
+
+
+def _load_settings(
+    config_dir: Path,
+    global_config: Path | None,
+    console: Console,
+) -> Settings | None:
+    """Load settings from resolved project context.
+
+    Args:
+        config_dir: Directory containing config.json.
+        global_config: Optional path to global config for merging.
+        console: Console for error output.
+
+    Returns:
+        Settings instance or None on error.
+    """
+    try:
+        if global_config:
+            return Settings.load_project(config_dir, global_config)
+        else:
+            return Settings.load(config_dir)
+    except ConfigError as e:
+        console.print(f"[red]Configuration error: {e}[/red]")
+        return None
+
+
 def main() -> int:
     """Main entry point.
 
@@ -65,11 +176,18 @@ def main() -> int:
     logger = get_logger()
     logger.info("Application started")
     console = Console()
+    args = _parse_args()
 
-    try:
-        settings = Settings.load()
-    except ConfigError as e:
-        console.print(f"[red]Configuration error: {e}[/red]")
+    # Resolve project context
+    context = _resolve_project_context(args, console)
+    if context is None:
+        return 0  # User chose to exit or list-projects was shown
+
+    config_dir, global_config = context
+
+    # Load settings
+    settings = _load_settings(config_dir, global_config, console)
+    if settings is None:
         return 1
 
     registry = _create_source_registry(settings)
@@ -97,12 +215,18 @@ def export_config() -> int:
     """
     get_logger()  # Initialize logger to prevent console output
     console = Console()
-    base_dir = Path.cwd()
+    args = _parse_args()
 
-    try:
-        settings = Settings.load(base_dir)
-    except ConfigError as e:
-        console.print(f"[red]Configuration error: {e}[/red]")
+    # Resolve project context
+    context = _resolve_project_context(args, console)
+    if context is None:
+        return 0  # User chose to exit or list-projects was shown
+
+    config_dir, global_config = context
+
+    # Load settings
+    settings = _load_settings(config_dir, global_config, console)
+    if settings is None:
         return 1
 
     registry = _create_source_registry(settings)
@@ -112,7 +236,10 @@ def export_config() -> int:
         return 1
 
     try:
-        config_writer = ConfigWriter(base_dir / Constants.CONFIG_FILE_NAME)
+        config_writer = ConfigWriter(
+            config_dir / Constants.CONFIG_FILE_NAME,
+            global_config,
+        )
         menu = ExportConfigMenu(registry, config_writer)
         menu.run()
     except KeyboardInterrupt:
@@ -132,11 +259,18 @@ def export() -> int:
     get_logger()  # Initialize logger to prevent console output
     console = Console()
     base_dir = Path.cwd()
+    args = _parse_args()
 
-    try:
-        settings = Settings.load(base_dir)
-    except ConfigError as e:
-        console.print(f"[red]Configuration error: {e}[/red]")
+    # Resolve project context
+    context = _resolve_project_context(args, console)
+    if context is None:
+        return 0  # User chose to exit or list-projects was shown
+
+    config_dir, global_config = context
+
+    # Load settings
+    settings = _load_settings(config_dir, global_config, console)
+    if settings is None:
         return 1
 
     if settings.export is None:

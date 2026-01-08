@@ -3,8 +3,10 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from quantify.config.constants import Constants
+from quantify.utils.json_utils import JsonUtils
 
 
 class ConfigError(Exception):
@@ -373,7 +375,63 @@ class Settings:
             raise ConfigError("Config must have either 'sources' or 'db_path'")
 
     @classmethod
-    def _load_new_format(cls, data: dict) -> "Settings":
+    def load_project(
+        cls,
+        project_path: Path,
+        global_config_path: Path | None = None,
+    ) -> "Settings":
+        """Load settings for a specific project with optional global config merge.
+
+        If global_config_path exists, its settings are used as defaults.
+        Project-specific settings override global settings.
+
+        Args:
+            project_path: Path to project directory containing config.json.
+            global_config_path: Optional path to global config.json.
+
+        Returns:
+            Settings instance with merged configuration.
+
+        Raises:
+            ConfigError: If neither project nor global config exists,
+                        or if the merged config is invalid.
+        """
+        project_config_path = project_path / Constants.CONFIG_FILE_NAME
+        has_project_config = project_config_path.exists()
+        has_global_config = global_config_path and global_config_path.exists()
+
+        if not has_project_config and not has_global_config:
+            raise ConfigError(
+                f"No configuration found. Expected config at: {project_config_path}"
+            )
+
+        # If only global config exists, use it directly
+        if not has_project_config and has_global_config:
+            assert global_config_path is not None  # for type checker
+            return cls.load(global_config_path.parent)
+
+        # If only project config exists, use it directly
+        if has_project_config and not has_global_config:
+            return cls.load(project_path)
+
+        # Both exist - merge them
+        try:
+            merged_data = JsonUtils.load_and_merge(global_config_path, project_config_path)
+        except json.JSONDecodeError as e:
+            raise ConfigError(
+                f"Invalid JSON: {e.msg} at line {e.lineno}, column {e.colno}"
+            ) from e
+
+        # Check for new format vs old format
+        if "sources" in merged_data:
+            return cls._load_new_format(merged_data)
+        elif "db_path" in merged_data:
+            return cls._load_legacy_format(merged_data)
+        else:
+            raise ConfigError("Config must have either 'sources' or 'db_path'")
+
+    @classmethod
+    def _load_new_format(cls, data: dict[str, Any]) -> "Settings":
         """Load configuration from new format with sources object."""
         sources_data = data.get("sources", {})
 
@@ -453,7 +511,7 @@ class Settings:
         return cls(sources=sources_config, export=export_settings)
 
     @classmethod
-    def _load_legacy_format(cls, data: dict) -> "Settings":
+    def _load_legacy_format(cls, data: dict[str, Any]) -> "Settings":
         """Load configuration from legacy format (db_path at root).
 
         Converts to new format internally while preserving export entries.
