@@ -15,6 +15,8 @@ from quantify.config.project_manager import ProjectManager
 from quantify.config.settings import ConfigError, Settings
 from quantify.export.html_exporter import HtmlExporter
 from quantify.services.logger import get_logger
+from quantify.sources.base import parse_display_config
+from quantify.sources.excel import ExcelSource
 from quantify.sources.git_stats import GitStatsSource
 from quantify.sources.hometrainer import HometrainerSource
 from quantify.sources.registry import SourceRegistry
@@ -34,27 +36,51 @@ def _create_source_registry(settings: Settings) -> SourceRegistry:
 
     # Register Track & Graph source
     if settings.sources.track_and_graph:
-        tg_source = TrackAndGraphSource(settings.sources.track_and_graph.db_path)
+        tg_config = settings.sources.track_and_graph
+        tg_source = TrackAndGraphSource(
+            db_path=tg_config.db_path,
+            display_config=parse_display_config(tg_config.display),
+        )
         registry.register(tg_source)
 
     # Register Hometrainer source
     if settings.sources.hometrainer:
+        ht_config = settings.sources.hometrainer
         ht_source = HometrainerSource(
-            settings.sources.hometrainer.logs_path,
-            settings.sources.hometrainer.unit,
+            logs_path=ht_config.logs_path,
+            unit=ht_config.unit,
+            display_config=parse_display_config(ht_config.display),
         )
         registry.register(ht_source)
 
     # Register Git Stats source
     if settings.sources.git_stats:
+        gs_config = settings.sources.git_stats
         gs_source = GitStatsSource(
-            author=settings.sources.git_stats.author,
-            root_paths=list(settings.sources.git_stats.root_paths),
-            exclude_dirs=list(settings.sources.git_stats.exclude_dirs),
-            exclude_extensions=list(settings.sources.git_stats.exclude_extensions),
-            exclude_filenames=list(settings.sources.git_stats.exclude_filenames),
+            author=gs_config.author,
+            root_paths=list(gs_config.root_paths),
+            exclude_dirs=list(gs_config.exclude_dirs),
+            exclude_extensions=list(gs_config.exclude_extensions),
+            exclude_filenames=list(gs_config.exclude_filenames),
+            display_config=parse_display_config(gs_config.display),
         )
         registry.register(gs_source)
+
+    # Register Excel sources
+    if settings.sources.excel:
+        for idx, excel_src in enumerate(settings.sources.excel.sources):
+            # Create unique source ID for each Excel source
+            source_id = f"excel_{idx}" if idx > 0 else "excel"
+            source = ExcelSource(
+                source_id=source_id,
+                name=excel_src.name,
+                file_path=excel_src.file_path,
+                tabs=excel_src.tabs,
+                function=excel_src.function,
+                unit_label=excel_src.unit_label,
+                display_config=parse_display_config(excel_src.display),
+            )
+            registry.register(source)
 
     return registry
 

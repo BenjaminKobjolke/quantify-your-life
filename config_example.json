@@ -13,6 +13,24 @@
                 "C:/path/to/git/repos",
                 "D:/another/git/folder"
             ]
+        },
+        "excel": {
+            "sources": [
+                {
+                    "name": "Savings",
+                    "file_path": "C:/path/to/finances.xlsx",
+                    "tabs": {
+                        "2020": "K2:K",
+                        "2021": "K2:K",
+                        "2022": "K2:K",
+                        "2023": "L2:L",
+                        "2024": "L2:L",
+                        "2025": "L2:L"
+                    },
+                    "function": "sum",
+                    "unit_label": "EUR"
+                }
+            ]
         }
     },
     "export": {
@@ -21,6 +39,7 @@
             {"source": "track_and_graph", "type": "group", "id": 1},
             {"source": "track_and_graph", "type": "feature", "id": 10},
             {"source": "hometrainer", "type": "stats", "id": null},
+            {"source": "excel", "type": "stats", "id": null},
             {"source": "git_stats", "type": "added", "id": null},
             {"source": "git_stats", "type": "removed", "id": null},
             {"source": "git_stats", "type": "net", "id": null},
