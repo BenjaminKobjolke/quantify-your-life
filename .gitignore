@@ -211,3 +211,9 @@ config.json
 /nul
 PLAN.md
 code_analysis_results/
+projects
+HANDOFF.md
+export-config-private.bat
+export-config-xida.bat
+export-private.bat
+export-xida.bat
