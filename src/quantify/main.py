@@ -284,7 +284,8 @@ def export() -> int:
     """
     get_logger()  # Initialize logger to prevent console output
     console = Console()
-    base_dir = Path.cwd()
+    # Get base_dir from module location, not cwd (so paths work from any directory)
+    base_dir = Path(__file__).parent.parent.parent
     args = _parse_args()
 
     # Resolve project context
