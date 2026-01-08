@@ -1,5 +1,6 @@
 """Top features export functionality."""
 
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -32,6 +33,8 @@ def export_top_features(
     group_id: int,
     group_name: str,
     period_key: str,
+    php_mode: bool = False,
+    php_wrapper_func: Callable[[str], str] | None = None,
 ) -> Path:
     """Export top features chart for a group.
 
@@ -42,9 +45,11 @@ def export_top_features(
         group_id: ID of the group.
         group_name: Name of the group.
         period_key: Period key for filtering.
+        php_mode: If True, output PHP file with authentication.
+        php_wrapper_func: Function to wrap HTML with PHP auth code.
 
     Returns:
-        Path to generated HTML file.
+        Path to generated file.
     """
     template = env.get_template("top_features.html")
 
@@ -78,13 +83,19 @@ def export_top_features(
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
-    # Generate filename
+    # Generate filename with appropriate extension
+    extension = ".php" if php_mode else ".html"
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in group_name)
     safe_period = "".join(c if c.isalnum() or c in "-_" else "_" for c in period_key)
-    filename = f"track_and_graph_top_features_{group_id}_{safe_name}_{safe_period}.html"
+    filename = f"track_and_graph_top_features_{group_id}_{safe_name}_{safe_period}{extension}"
     file_path = output_dir / filename
 
+    # Wrap with PHP authentication if enabled
+    content = html_content
+    if php_mode and php_wrapper_func:
+        content = php_wrapper_func(html_content)
+
     with open(file_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
+        f.write(content)
 
     return file_path

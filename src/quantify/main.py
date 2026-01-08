@@ -318,10 +318,22 @@ def export() -> int:
         return 1
 
     try:
+        # Determine PHP login library path if PHP mode is enabled
+        php_login_lib_path = None
+        if settings.export.php_mode:
+            # PHP simple login library is expected as sibling directory
+            php_login_lib_path = base_dir.parent / "php-simple-login"
+            if not php_login_lib_path.exists():
+                console.print(
+                    f"[red]PHP mode enabled but library not found at {php_login_lib_path}[/red]"
+                )
+                return 1
+
         exporter = HtmlExporter(
             registry=registry,
             templates_dir=base_dir / "templates",
             static_dir=base_dir / "static",
+            php_login_lib_path=php_login_lib_path,
         )
 
         generated_files = exporter.export(settings.export)

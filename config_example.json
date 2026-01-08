@@ -35,6 +35,8 @@
     },
     "export": {
         "path": "C:/path/to/export/folder",
+        "php_mode": false,
+        "php_password": "your-secure-password",
         "entries": [
             {"source": "track_and_graph", "type": "group", "id": 1},
             {"source": "track_and_graph", "type": "feature", "id": 10},

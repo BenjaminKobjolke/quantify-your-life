@@ -24,6 +24,7 @@ class HtmlExporter:
         registry: SourceRegistry,
         templates_dir: Path,
         static_dir: Path,
+        php_login_lib_path: Path | None = None,
     ) -> None:
         """Initialize HTML exporter.
 
@@ -31,10 +32,12 @@ class HtmlExporter:
             registry: Source registry with configured sources.
             templates_dir: Path to templates directory.
             static_dir: Path to static files directory.
+            php_login_lib_path: Path to php-simple-login library (for PHP mode).
         """
         self._registry = registry
         self._templates_dir = templates_dir
         self._static_dir = static_dir
+        self._php_login_lib_path = php_login_lib_path
         self._env = Environment(
             loader=FileSystemLoader(str(templates_dir)),
             autoescape=True,
@@ -54,6 +57,14 @@ class HtmlExporter:
 
         # Copy static files
         self._copy_static_files(output_dir)
+
+        # Handle PHP mode setup
+        php_mode = export_settings.php_mode
+        if php_mode:
+            if not export_settings.php_password:
+                raise ValueError("php_password is required when php_mode is enabled")
+            self._copy_php_library(output_dir)
+            self._generate_php_config(output_dir, export_settings.php_password)
 
         generated_files: list[Path] = []
         index_entries: list[dict[str, str]] = []
@@ -83,6 +94,8 @@ class HtmlExporter:
                     group_id=entry.entry_id,
                     group_name=group_name,
                     period_key=entry.period,
+                    php_mode=php_mode,
+                    php_wrapper_func=self._wrap_html_with_php if php_mode else None,
                 )
                 period_label = get_period_label(entry.period)
                 display_name = f"Top Features - {group_name} ({period_label})"
@@ -113,7 +126,7 @@ class HtmlExporter:
                 unit = "projects"
                 unit_label = "projects"
 
-            # Export to HTML
+            # Export to HTML/PHP
             file_path = self._export_stats(
                 output_dir=output_dir,
                 name=name,
@@ -125,27 +138,34 @@ class HtmlExporter:
                 unit_label=unit_label,
                 display_config=source.info.display_config,
                 custom_title=entry.title,
+                php_mode=php_mode,
             )
             generated_files.append(file_path)
             # Use custom title for index if provided
             display_name = entry.title if entry.title else name
             index_entries.append({"name": display_name, "filename": file_path.name})
 
-        # Generate index.html
-        index_path = self._export_index(output_dir, index_entries)
+        # Generate index page
+        index_path = self._export_index(output_dir, index_entries, php_mode=php_mode)
         generated_files.insert(0, index_path)
 
         return generated_files
 
-    def _export_index(self, output_dir: Path, entries: list[dict[str, str]]) -> Path:
-        """Generate index.html with links to all exported stats.
+    def _export_index(
+        self,
+        output_dir: Path,
+        entries: list[dict[str, str]],
+        php_mode: bool = False,
+    ) -> Path:
+        """Generate index page with links to all exported stats.
 
         Args:
             output_dir: Output directory path.
             entries: List of dicts with 'name' and 'filename' keys.
+            php_mode: If True, output PHP file with authentication.
 
         Returns:
-            Path to generated index.html.
+            Path to generated index file.
         """
         template = self._env.get_template("index.html")
 
@@ -154,9 +174,14 @@ class HtmlExporter:
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         )
 
-        file_path = output_dir / "index.html"
+        extension = ".php" if php_mode else ".html"
+        file_path = output_dir / f"index{extension}"
+
+        # Wrap with PHP authentication if enabled
+        content = self._wrap_html_with_php(html_content) if php_mode else html_content
+
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(html_content)
+            f.write(content)
 
         return file_path
 
@@ -186,6 +211,65 @@ class HtmlExporter:
         if src_top_js.exists():
             shutil.copy(src_top_js, js_dir / "top_chart.js")
 
+    def _copy_php_library(self, output_dir: Path) -> None:
+        """Copy php-simple-login source files to output directory.
+
+        Args:
+            output_dir: Output directory path.
+        """
+        if self._php_login_lib_path is None:
+            return
+
+        lib_dir = output_dir / "lib" / "simple-login"
+        lib_dir.mkdir(parents=True, exist_ok=True)
+
+        for filename in ("SimpleLogin.php", "Session.php"):
+            src = self._php_login_lib_path / "src" / filename
+            if src.exists():
+                shutil.copy(src, lib_dir / filename)
+
+    def _generate_php_config(self, output_dir: Path, password: str) -> None:
+        """Generate simple-login-config.php with password.
+
+        Args:
+            output_dir: Output directory path.
+            password: Login password.
+        """
+        content = f"""<?php
+/**
+ * Simple Login Configuration
+ * Auto-generated by Quantify Your Life
+ */
+
+define('SIMPLE_LOGIN_PASSWORD', '{password}');
+"""
+        config_path = output_dir / "simple-login-config.php"
+        config_path.write_text(content, encoding="utf-8")
+
+    def _wrap_html_with_php(self, html_content: str) -> str:
+        """Wrap HTML content with PHP authentication code.
+
+        Args:
+            html_content: Original HTML content.
+
+        Returns:
+            PHP file content with authentication.
+        """
+        php_header = """<?php
+// Load config first (defines SIMPLE_LOGIN_PASSWORD constant)
+require_once __DIR__ . '/simple-login-config.php';
+
+// Load library files
+require_once __DIR__ . '/lib/simple-login/Session.php';
+require_once __DIR__ . '/lib/simple-login/SimpleLogin.php';
+
+use BenjaminKobjolke\\SimpleLogin\\SimpleLogin;
+
+SimpleLogin::requireAuth();
+?>
+"""
+        return php_header + html_content
+
     def _export_stats(
         self,
         output_dir: Path,
@@ -198,6 +282,7 @@ class HtmlExporter:
         unit_label: str,
         display_config: DisplayConfig | None = None,
         custom_title: str | None = None,
+        php_mode: bool = False,
     ) -> Path:
         """Export statistics for a single entry.
 
@@ -212,9 +297,10 @@ class HtmlExporter:
             unit_label: Unit label for display.
             display_config: Optional display configuration for filtering rows.
             custom_title: Optional custom page title (uses name if None).
+            php_mode: If True, output PHP file with authentication.
 
         Returns:
-            Path to generated HTML file.
+            Path to generated file.
         """
         template = self._env.get_template("stats.html")
 
@@ -256,13 +342,17 @@ class HtmlExporter:
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         )
 
-        # Generate filename
+        # Generate filename with appropriate extension
+        extension = ".php" if php_mode else ".html"
         safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
         entry_id_str = str(entry_id) if entry_id is not None else "all"
-        filename = f"{source_id}_{entry_type}_{entry_id_str}_{safe_name}.html"
+        filename = f"{source_id}_{entry_type}_{entry_id_str}_{safe_name}{extension}"
         file_path = output_dir / filename
 
+        # Wrap with PHP authentication if enabled
+        content = self._wrap_html_with_php(html_content) if php_mode else html_content
+
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(html_content)
+            f.write(content)
 
         return file_path

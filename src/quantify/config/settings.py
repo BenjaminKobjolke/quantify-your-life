@@ -338,6 +338,8 @@ class ExportSettings:
     path: str
     entries: tuple[ExportEntry, ...]
     ftp_sync: FtpSyncSettings | None = None
+    php_mode: bool = False  # Enable PHP authentication mode
+    php_password: str | None = None  # Password for PHP login
 
 
 # Legacy export settings for backwards compatibility
@@ -555,6 +557,8 @@ class Settings:
                 path=export_data.get("path", ""),
                 entries=tuple(entries),
                 ftp_sync=ftp_sync_settings,
+                php_mode=export_data.get("php_mode", False),
+                php_password=export_data.get("php_password"),
             )
 
         return cls(sources=sources_config, export=export_settings)
