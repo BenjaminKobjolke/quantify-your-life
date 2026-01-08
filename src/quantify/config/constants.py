@@ -31,6 +31,10 @@ class Constants:
     PERIOD_TOTAL_LAST_YEAR: str = "Last year ({year})"
     PERIOD_TOTAL_YEAR_BEFORE: str = "Year before ({year})"
 
+    # Year-over-year labels
+    PERIOD_YOY_THIS_VS_LAST: str = "vs last year"
+    PERIOD_YOY_LAST_VS_YEAR_BEFORE: str = "vs year before"
+
     # Output labels
     LABEL_STATISTICS_FOR: str = "Statistics for"
     LABEL_NO_DATA: str = "No data available"

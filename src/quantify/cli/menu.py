@@ -20,7 +20,7 @@ from quantify.cli.handlers.hometrainer import handle_hometrainer
 from quantify.cli.handlers.track_and_graph import handle_track_and_graph
 from quantify.config.constants import Constants
 from quantify.services.stats_calculator import TimeStats
-from quantify.sources.base import DataSource, SelectableItem
+from quantify.sources.base import DataSource, DisplayConfig, SelectableItem
 from quantify.sources.git_stats import GitStatsSource
 from quantify.sources.hometrainer import HometrainerSource
 from quantify.sources.registry import SourceRegistry
@@ -77,9 +77,6 @@ class Menu:
         Returns:
             Selected source or None if cancelled/back.
         """
-        if len(sources) == 1:
-            return sources[0]
-
         choices = [questionary.Choice(title=s.info.display_name, value=s) for s in sources]
         choices.append(questionary.Choice(title=Constants.MENU_EXIT, value=None))
 
@@ -98,19 +95,33 @@ class Menu:
             self._console.print("[yellow]No items available[/yellow]")
             return
 
+        # Auto-select if only one item
         if len(items) == 1:
-            # Single item, show directly
-            item = items[0]
-            stats = source.get_stats(item.id, item.item_type)
-            self._display_stats(item.name, stats, source.info.unit, source.info.unit_label)
-        else:
-            # Multiple items, let user select
-            selected = self._select_item(items, "Select item:")
-            if selected is None:
+            selected = items[0]
+            stats = source.get_stats(selected.id, selected.item_type)
+            self._display_stats(
+                selected.name,
+                stats,
+                source.info.unit,
+                source.info.unit_label,
+                source.info.display_config,
+            )
+            return
+
+        # Multiple items - show selection
+        while True:
+            selected = self._select_item_with_back(items, "Select item:")
+            if selected is None or not isinstance(selected, SelectableItem):
                 return
 
             stats = source.get_stats(selected.id, selected.item_type)
-            self._display_stats(selected.name, stats, source.info.unit, source.info.unit_label)
+            self._display_stats(
+                selected.name,
+                stats,
+                source.info.unit,
+                source.info.unit_label,
+                source.info.display_config,
+            )
 
     def _ask_view_type(self) -> str | None:
         """Ask user how they want to view statistics.
@@ -159,7 +170,14 @@ class Menu:
         result = questionary.select(prompt, choices=choices).ask()
         return cast(SelectableItem | None, result)
 
-    def _display_stats(self, name: str, stats: TimeStats, unit: str, unit_label: str) -> None:
+    def _display_stats(
+        self,
+        name: str,
+        stats: TimeStats,
+        unit: str,
+        unit_label: str,
+        display_config: DisplayConfig | None = None,
+    ) -> None:
         """Display statistics in a formatted table.
 
         Args:
@@ -167,7 +185,14 @@ class Menu:
             stats: Statistics to display.
             unit: Unit type ("time" or "distance").
             unit_label: Unit label ("h", "km", "mi").
+            display_config: Optional display configuration for filtering rows.
         """
+        hide_rows = display_config.hide_rows if display_config else ()
+        show_rows = display_config.show_rows if display_config else ()
+
+        def should_show(key: str) -> bool:
+            return key not in hide_rows
+
         table = Table(title=f"{Constants.LABEL_STATISTICS_FOR}: {name}")
         table.add_column("Period", style="cyan")
         table.add_column("Value", style="green", justify="right")
@@ -185,63 +210,125 @@ class Menu:
             else:
                 return format_distance(value, unit_label)
 
-        # Recent periods
-        table.add_row(Constants.PERIOD_LAST_7_DAYS, fmt(stats.last_7_days))
-        table.add_row(Constants.PERIOD_LAST_31_DAYS, fmt(stats.last_31_days))
+        def fmt_trend(value: float | None) -> str:
+            trend_str = format_trend(value)
+            if value is not None:
+                if value >= 0:
+                    return f"[green]{trend_str}[/green]"
+                else:
+                    return f"[red]{trend_str}[/red]"
+            return trend_str
 
-        # Averages section (show 1 decimal place)
-        table.add_row("", "")  # Empty row as separator
-        table.add_row(
+        current_year = date.today().year
+        rows_added = 0
+
+        def add_separator() -> None:
+            nonlocal rows_added
+            if rows_added > 0:
+                table.add_row("", "")
+
+        def add_row(key: str, label: str, value: str) -> None:
+            nonlocal rows_added
+            if should_show(key):
+                table.add_row(label, value)
+                rows_added += 1
+
+        # Recent periods
+        add_row("last_7_days", Constants.PERIOD_LAST_7_DAYS, fmt(stats.last_7_days))
+        add_row("last_31_days", Constants.PERIOD_LAST_31_DAYS, fmt(stats.last_31_days))
+
+        # Averages section
+        add_separator()
+        rows_added = 0
+        add_row(
+            "avg_per_day_last_30_days",
             Constants.PERIOD_AVG_LAST_30_DAYS,
             fmt(stats.avg_per_day_last_30_days, is_avg=True),
         )
+        add_row(
+            "trend_vs_previous_30_days",
+            Constants.PERIOD_TREND_30_DAYS,
+            fmt_trend(stats.trend_vs_previous_30_days),
+        )
 
-        # Trend with color
-        trend_str = format_trend(stats.trend_vs_previous_30_days)
-        if stats.trend_vs_previous_30_days is not None:
-            if stats.trend_vs_previous_30_days >= 0:
-                trend_str = f"[green]{trend_str}[/green]"
-            else:
-                trend_str = f"[red]{trend_str}[/red]"
-        table.add_row(Constants.PERIOD_TREND_30_DAYS, trend_str)
-
-        table.add_row("", "")  # Empty row as separator
-        table.add_row(
+        add_separator()
+        rows_added = 0
+        add_row(
+            "avg_per_day_last_12_months",
             Constants.PERIOD_AVG_LAST_12_MONTHS,
             fmt(stats.avg_per_day_last_12_months, is_avg=True),
         )
-        table.add_row(
+        add_row(
+            "avg_per_day_this_year",
             Constants.PERIOD_AVG_THIS_YEAR,
             fmt(stats.avg_per_day_this_year, is_avg=True),
         )
-        table.add_row(
+        add_row(
+            "avg_per_day_last_year",
             Constants.PERIOD_AVG_LAST_YEAR,
             fmt(stats.avg_per_day_last_year, is_avg=True),
         )
 
-        # Yearly totals
-        table.add_row("", "")  # Empty row as separator
-        current_year = date.today().year
-        table.add_row(
-            Constants.PERIOD_TOTAL_THIS_YEAR.format(year=current_year),
-            fmt(stats.total_this_year),
-        )
-        table.add_row(
-            Constants.PERIOD_TOTAL_LAST_YEAR.format(year=current_year - 1),
-            fmt(stats.total_last_year),
-        )
-        table.add_row(
-            Constants.PERIOD_TOTAL_YEAR_BEFORE.format(year=current_year - 2),
-            fmt(stats.total_year_before),
-        )
+        # Yearly totals (dynamic based on show_years)
+        add_separator()
+        rows_added = 0
+
+        # Create YoY lookup
+        yoy_by_year: dict[int, float | None] = {}
+        for year, pct in stats.yoy_percentages:
+            yoy_by_year[year] = pct
+
+        show_all_yoy = display_config.show_all_yoy if display_config else False
+
+        for idx, (year, total) in enumerate(stats.yearly_totals):
+            # Generate row key based on position (for backward compatibility)
+            if idx == 0:
+                key = "total_this_year"
+            elif idx == 1:
+                key = "total_last_year"
+            elif idx == 2:
+                key = "total_year_before"
+            else:
+                key = f"total_year_{year}"
+
+            # Always use just the year as the label
+            label = str(year)
+
+            add_row(key, label, fmt(total))
+
+            # Add YoY row after this year if requested and available
+            if year in yoy_by_year:
+                prev_year = stats.yearly_totals[idx + 1][0] if idx + 1 < len(stats.yearly_totals) else year - 1
+
+                # Check if we should show this YoY row
+                should_show_yoy = show_all_yoy
+                if idx == 0:
+                    should_show_yoy = should_show_yoy or "yoy_this_vs_last" in show_rows
+                elif idx == 1:
+                    should_show_yoy = should_show_yoy or "yoy_last_vs_year_before" in show_rows
+                else:
+                    should_show_yoy = should_show_yoy or f"yoy_{year}" in show_rows
+
+                if should_show_yoy:
+                    # Use predefined label for first two YoY rows
+                    if idx == 0:
+                        yoy_label = Constants.PERIOD_YOY_THIS_VS_LAST
+                    elif idx == 1:
+                        yoy_label = Constants.PERIOD_YOY_LAST_VS_YEAR_BEFORE
+                    else:
+                        yoy_label = f"vs {prev_year}"
+
+                    table.add_row(yoy_label, fmt_trend(yoy_by_year[year]))
+                    rows_added += 1
 
         # Standard periods
-        table.add_row("", "")  # Empty row as separator
-        table.add_row(Constants.PERIOD_THIS_WEEK, fmt(stats.this_week))
-        table.add_row(Constants.PERIOD_THIS_MONTH, fmt(stats.this_month))
-        table.add_row(Constants.PERIOD_LAST_MONTH, fmt(stats.last_month))
-        table.add_row(Constants.PERIOD_LAST_12_MONTHS, fmt(stats.last_12_months))
-        table.add_row(Constants.PERIOD_TOTAL, fmt(stats.total))
+        add_separator()
+        rows_added = 0
+        add_row("this_week", Constants.PERIOD_THIS_WEEK, fmt(stats.this_week))
+        add_row("this_month", Constants.PERIOD_THIS_MONTH, fmt(stats.this_month))
+        add_row("last_month", Constants.PERIOD_LAST_MONTH, fmt(stats.last_month))
+        add_row("last_12_months", Constants.PERIOD_LAST_12_MONTHS, fmt(stats.last_12_months))
+        add_row("total", Constants.PERIOD_TOTAL, fmt(stats.total))
 
         self._console.print()
         self._console.print(table)

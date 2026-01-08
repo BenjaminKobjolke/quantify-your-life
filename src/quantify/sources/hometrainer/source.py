@@ -3,7 +3,13 @@
 from pathlib import Path
 
 from quantify.services.stats_calculator import StatsCalculator, TimeStats
-from quantify.sources.base import DataProvider, DataSource, SelectableItem, SourceInfo
+from quantify.sources.base import (
+    DataProvider,
+    DataSource,
+    DisplayConfig,
+    SelectableItem,
+    SourceInfo,
+)
 from quantify.sources.hometrainer.data_provider import HometrainerDataProvider
 from quantify.sources.hometrainer.log_reader import HometrainerLogReader
 
@@ -11,15 +17,22 @@ from quantify.sources.hometrainer.log_reader import HometrainerLogReader
 class HometrainerSource(DataSource):
     """Data source for Hometrainer log files."""
 
-    def __init__(self, logs_path: str | None, unit: str = "km") -> None:
+    def __init__(
+        self,
+        logs_path: str | None,
+        unit: str = "km",
+        display_config: DisplayConfig | None = None,
+    ) -> None:
         """Initialize Hometrainer source.
 
         Args:
             logs_path: Path to the Hometrainer_Logs directory.
             unit: Display unit - "km" or "mi". Default is "km".
+            display_config: Optional display configuration for stats output.
         """
         self._logs_path = logs_path
         self._unit = unit
+        self._display_config = display_config or DisplayConfig()
         self._log_reader: HometrainerLogReader | None = None
 
     @property
@@ -30,6 +43,7 @@ class HometrainerSource(DataSource):
             display_name="Hometrainer",
             unit="distance",
             unit_label=self._unit,
+            display_config=self._display_config,
         )
 
     def is_configured(self) -> bool:
@@ -100,7 +114,7 @@ class HometrainerSource(DataSource):
         """
         provider = self.get_data_provider(item_id, item_type)
         calculator = StatsCalculator()
-        return calculator.calculate(provider.get_sum)
+        return calculator.calculate(provider.get_sum, self._display_config.show_years)
 
     def close(self) -> None:
         """Close resources (no-op for file-based source)."""

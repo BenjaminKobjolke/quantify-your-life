@@ -8,7 +8,13 @@ from quantify.db.repositories.datapoints import DataPointsRepository
 from quantify.db.repositories.features import FeaturesRepository
 from quantify.db.repositories.groups import GroupsRepository
 from quantify.services.stats_calculator import StatsCalculator, TimeStats
-from quantify.sources.base import DataProvider, DataSource, SelectableItem, SourceInfo
+from quantify.sources.base import (
+    DataProvider,
+    DataSource,
+    DisplayConfig,
+    SelectableItem,
+    SourceInfo,
+)
 from quantify.sources.track_and_graph.data_provider import (
     FeatureDataProvider,
     GroupDataProvider,
@@ -20,13 +26,19 @@ from quantify.sources.track_and_graph.data_provider import (
 class TrackAndGraphSource(DataSource):
     """Data source for Track & Graph SQLite database."""
 
-    def __init__(self, db_path: str | None) -> None:
+    def __init__(
+        self,
+        db_path: str | None,
+        display_config: DisplayConfig | None = None,
+    ) -> None:
         """Initialize Track & Graph source.
 
         Args:
             db_path: Path to the Track & Graph SQLite database.
+            display_config: Optional display configuration for stats output.
         """
         self._db_path = db_path
+        self._display_config = display_config or DisplayConfig()
         self._db: Database | None = None
         self._groups_repo: GroupsRepository | None = None
         self._features_repo: FeaturesRepository | None = None
@@ -40,6 +52,7 @@ class TrackAndGraphSource(DataSource):
             display_name="Track & Graph",
             unit="time",
             unit_label="h",
+            display_config=self._display_config,
         )
 
     def is_configured(self) -> bool:
@@ -158,7 +171,7 @@ class TrackAndGraphSource(DataSource):
         """
         provider = self.get_data_provider(item_id, item_type)
         calculator = StatsCalculator()
-        return calculator.calculate(provider.get_sum)
+        return calculator.calculate(provider.get_sum, self._display_config.show_years)
 
     def get_top_features_in_group(
         self,

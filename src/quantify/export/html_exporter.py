@@ -11,6 +11,7 @@ from quantify.config.settings import ExportSettings
 from quantify.export.stats_builder import build_chart_data, build_stats_rows
 from quantify.export.top_features_exporter import export_top_features
 from quantify.services.stats import TimeStats
+from quantify.sources.base import DisplayConfig
 from quantify.sources.registry import SourceRegistry
 from quantify.sources.track_and_graph import TrackAndGraphSource
 
@@ -122,9 +123,13 @@ class HtmlExporter:
                 stats=stats,
                 unit=unit,
                 unit_label=unit_label,
+                display_config=source.info.display_config,
+                custom_title=entry.title,
             )
             generated_files.append(file_path)
-            index_entries.append({"name": name, "filename": file_path.name})
+            # Use custom title for index if provided
+            display_name = entry.title if entry.title else name
+            index_entries.append({"name": display_name, "filename": file_path.name})
 
         # Generate index.html
         index_path = self._export_index(output_dir, index_entries)
@@ -191,6 +196,8 @@ class HtmlExporter:
         stats: TimeStats,
         unit: str,
         unit_label: str,
+        display_config: DisplayConfig | None = None,
+        custom_title: str | None = None,
     ) -> Path:
         """Export statistics for a single entry.
 
@@ -203,15 +210,29 @@ class HtmlExporter:
             stats: Statistics to export.
             unit: Unit type ("time" or "distance").
             unit_label: Unit label for display.
+            display_config: Optional display configuration for filtering rows.
+            custom_title: Optional custom page title (uses name if None).
 
         Returns:
             Path to generated HTML file.
         """
         template = self._env.get_template("stats.html")
 
-        title = name
-        stats_rows = build_stats_rows(stats, unit, unit_label)
-        chart_labels, chart_values = build_chart_data(stats)
+        title = custom_title if custom_title else name
+        stats_rows = build_stats_rows(stats, unit, unit_label, display_config)
+        chart_labels, chart_values = build_chart_data(stats, display_config)
+
+        # Build chart title
+        chart_title = None
+        if display_config and display_config.chart:
+            chart_title = display_config.chart.title
+        if not chart_title:
+            # Generate default title based on chart type
+            chart_type = display_config.chart.chart_type if display_config and display_config.chart else "periods"
+            if chart_type == "yearly":
+                chart_title = f"{unit_label.capitalize()} by Year"
+            else:
+                chart_title = f"{unit_label.capitalize()} by Period"
 
         html_content = template.render(
             title=title,
@@ -226,6 +247,7 @@ class HtmlExporter:
             ],
             chart_labels=chart_labels,
             chart_values=chart_values,
+            chart_title=chart_title,
             unit=unit,
             unit_label=unit_label,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),

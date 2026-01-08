@@ -14,7 +14,13 @@ if TYPE_CHECKING:
 
 from quantify.config.settings import DEFAULT_PROJECT_TYPES
 from quantify.services.stats_calculator import StatsCalculator, TimeStats
-from quantify.sources.base import DataProvider, DataSource, SelectableItem, SourceInfo
+from quantify.sources.base import (
+    DataProvider,
+    DataSource,
+    DisplayConfig,
+    SelectableItem,
+    SourceInfo,
+)
 from quantify.sources.git_stats.data_provider import (
     GitStatsDataProvider,
     ProjectsCreatedDataProvider,
@@ -51,6 +57,7 @@ class GitStatsSource(ProgressMixin, DataSource):
         exclude_dirs: list[str],
         exclude_extensions: list[str],
         exclude_filenames: list[str],
+        display_config: DisplayConfig | None = None,
     ) -> None:
         """Initialize git stats source.
 
@@ -60,12 +67,14 @@ class GitStatsSource(ProgressMixin, DataSource):
             exclude_dirs: Directory names to exclude from stats.
             exclude_extensions: File extensions to exclude from stats.
             exclude_filenames: Specific filenames to exclude from stats.
+            display_config: Optional display configuration for stats output.
         """
         self._author = author
         self._root_paths = root_paths
         self._exclude_dirs = exclude_dirs
         self._exclude_extensions = exclude_extensions
         self._exclude_filenames = exclude_filenames
+        self._display_config = display_config or DisplayConfig()
         self._repos: list[Path] | None = None
         self._parser: GitLogParser | None = None  # Default parser (no project type)
         self._parsers: dict[str, GitLogParser] = {}  # Parsers by project type
@@ -82,6 +91,7 @@ class GitStatsSource(ProgressMixin, DataSource):
             display_name="Git Stats",
             unit="lines",
             unit_label="lines",
+            display_config=self._display_config,
         )
 
     def is_configured(self) -> bool:
@@ -172,7 +182,7 @@ class GitStatsSource(ProgressMixin, DataSource):
 
         # Show progress during calculation (total updated by _on_progress callback)
         with self._progress_context("Scanning repositories..."):
-            return calculator.calculate(provider.get_sum)
+            return calculator.calculate(provider.get_sum, self._display_config.show_years)
 
     def close(self) -> None:
         """Close any resources held by this source."""
