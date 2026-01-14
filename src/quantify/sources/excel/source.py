@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from quantify.services.monthly_stats import MonthlyStats
 from quantify.services.stats_calculator import StatsCalculator, TimeStats
 from quantify.sources.base import (
     DataProvider,
@@ -10,7 +11,7 @@ from quantify.sources.base import (
     SelectableItem,
     SourceInfo,
 )
-from quantify.sources.excel.data_provider import ExcelDataProvider
+from quantify.sources.excel.data_provider import ExcelDataProvider, MonthlyDataProvider
 from quantify.sources.excel.reader import ExcelReader
 
 
@@ -30,6 +31,7 @@ class ExcelSource(DataSource):
         function: str = "sum",
         unit_label: str = "",
         display_config: DisplayConfig | None = None,
+        date_column: str | None = None,
     ) -> None:
         """Initialize Excel source.
 
@@ -41,6 +43,7 @@ class ExcelSource(DataSource):
             function: Aggregation function (currently only "sum").
             unit_label: Unit label for display.
             display_config: Optional display configuration for stats output.
+            date_column: Optional date column for monthly comparison (e.g., "D3:D").
         """
         self._source_id = source_id
         self._name = name
@@ -49,6 +52,7 @@ class ExcelSource(DataSource):
         self._function = function
         self._unit_label = unit_label
         self._display_config = display_config or DisplayConfig()
+        self._date_column = date_column
         self._reader: ExcelReader | None = None
 
     @property
@@ -67,6 +71,11 @@ class ExcelSource(DataSource):
         path = Path(self._file_path)
         return path.exists()
 
+    @property
+    def has_monthly_comparison(self) -> bool:
+        """Return True if monthly comparison is available (date_column is set)."""
+        return self._date_column is not None
+
     def _ensure_reader(self) -> ExcelReader:
         """Ensure reader is initialized and return it."""
         if self._reader is None:
@@ -74,18 +83,30 @@ class ExcelSource(DataSource):
         return self._reader
 
     def get_selectable_items(self) -> list[SelectableItem]:
-        """Return single stats item for this Excel source."""
+        """Return selectable items for this Excel source."""
+        items: list[SelectableItem] = []
+
+        # Standard stats item
         label = self._name
         if self._unit_label:
             label = f"{self._name} ({self._unit_label})"
-        return [SelectableItem(None, label, "stats")]
+        items.append(SelectableItem(None, label, "stats"))
+
+        # Monthly comparison item (if date_column is configured)
+        if self.has_monthly_comparison:
+            monthly_label = f"{self._name} - Monthly Comparison"
+            if self._unit_label:
+                monthly_label = f"{self._name} - Monthly ({self._unit_label})"
+            items.append(SelectableItem(None, monthly_label, "monthly_comparison"))
+
+        return items
 
     def get_item_name(self, item_id: int | None, item_type: str) -> str | None:
         """Get the name of an item.
 
         Args:
             item_id: Ignored for Excel sources.
-            item_type: Should be "stats".
+            item_type: "stats" or "monthly_comparison".
 
         Returns:
             The item name.
@@ -94,6 +115,11 @@ class ExcelSource(DataSource):
             label = self._name
             if self._unit_label:
                 label = f"{self._name} ({self._unit_label})"
+            return label
+        elif item_type == "monthly_comparison":
+            label = f"{self._name} - Monthly Comparison"
+            if self._unit_label:
+                label = f"{self._name} - Monthly ({self._unit_label})"
             return label
         return None
 
@@ -127,6 +153,24 @@ class ExcelSource(DataSource):
         provider = self.get_data_provider(item_id, item_type)
         calculator = StatsCalculator()
         return calculator.calculate(provider.get_sum, self._display_config.show_years)
+
+    def get_monthly_stats(self) -> MonthlyStats | None:
+        """Get monthly comparison statistics.
+
+        Returns:
+            MonthlyStats if date_column is configured, None otherwise.
+        """
+        if not self.has_monthly_comparison:
+            return None
+
+        reader = self._ensure_reader()
+        provider = MonthlyDataProvider(
+            reader=reader,
+            tabs=self._tabs,
+            date_column=self._date_column,  # type: ignore[arg-type]
+            unit_label=self._unit_label,
+        )
+        return provider.get_monthly_stats()
 
     def close(self) -> None:
         """Close resources."""

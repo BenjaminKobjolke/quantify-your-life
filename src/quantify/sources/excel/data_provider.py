@@ -2,6 +2,7 @@
 
 from datetime import date
 
+from quantify.services.monthly_stats import MonthlyStats
 from quantify.sources.excel.reader import ExcelReader
 
 
@@ -107,3 +108,89 @@ class ExcelDataProvider:
             total += self._get_year_sum(year)
 
         return total
+
+
+class MonthlyDataProvider:
+    """Data provider that aggregates Excel data by month for year-over-year comparison.
+
+    Reads date+value pairs from each year tab and groups by month.
+    """
+
+    def __init__(
+        self,
+        reader: ExcelReader,
+        tabs: dict[str, str],  # {tab_name: value_column_range}
+        date_column: str,  # Date column range (e.g., "D3:D")
+        unit_label: str = "",
+    ) -> None:
+        """Initialize provider.
+
+        Args:
+            reader: Excel file reader.
+            tabs: Dict mapping tab names (years) to value column ranges.
+            date_column: Column range for dates (same for all tabs).
+            unit_label: Unit label for display.
+        """
+        self._reader = reader
+        self._tabs = tabs
+        self._date_column = date_column
+        self._unit_label = unit_label
+        # Pre-compute year tab mapping
+        self._year_to_tab = self._build_year_mapping()
+        # Cache monthly data
+        self._monthly_cache: dict[int, dict[int, float]] = {}
+
+    def _build_year_mapping(self) -> dict[int, str]:
+        """Build mapping from year integers to tab names."""
+        mapping: dict[int, str] = {}
+        for tab in self._tabs:
+            try:
+                year = int(tab)
+                mapping[year] = tab
+            except ValueError:
+                continue
+        return mapping
+
+    def _get_year_monthly_sums(self, year: int) -> dict[int, float]:
+        """Get monthly sums for a specific year.
+
+        Args:
+            year: The year to get data for.
+
+        Returns:
+            Dict mapping month (1-12) to sum.
+        """
+        if year in self._monthly_cache:
+            return self._monthly_cache[year]
+
+        tab_name = self._year_to_tab.get(year)
+        if tab_name is None:
+            return {}
+
+        value_range_str = self._tabs[tab_name]
+        date_range = ExcelReader.parse_column_range(self._date_column)
+        value_range = ExcelReader.parse_column_range(value_range_str)
+
+        monthly_sums = self._reader.get_monthly_sums(tab_name, date_range, value_range)
+        self._monthly_cache[year] = monthly_sums
+        return monthly_sums
+
+    def get_monthly_stats(self) -> MonthlyStats:
+        """Get monthly comparison statistics across all years.
+
+        Returns:
+            MonthlyStats instance with data for all configured years.
+        """
+        data: dict[int, dict[int, float]] = {}
+        years = sorted(self._year_to_tab.keys(), reverse=True)
+
+        for year in years:
+            monthly_sums = self._get_year_monthly_sums(year)
+            if monthly_sums:  # Only include years with data
+                data[year] = monthly_sums
+
+        return MonthlyStats(
+            data=data,
+            years=tuple(years),
+            unit_label=self._unit_label,
+        )

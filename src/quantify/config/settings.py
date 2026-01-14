@@ -197,6 +197,7 @@ class ExcelSourceConfig:
     function: str = "sum"  # Aggregation function (currently only "sum")
     unit_label: str = ""  # Optional unit label (e.g., "EUR", "kg")
     display: dict[str, Any] | None = None  # Display config (hide_rows, show_rows)
+    date_column: str | None = None  # Optional date column for monthly comparison (e.g., "D3:D")
 
 
 @dataclass(frozen=True)
@@ -511,6 +512,7 @@ class Settings:
                         function=src.get("function", "sum"),
                         unit_label=src.get("unit_label", ""),
                         display=src.get("display"),
+                        date_column=src.get("date_column"),
                     )
                 )
             excel_config = ExcelConfig(sources=tuple(excel_sources))

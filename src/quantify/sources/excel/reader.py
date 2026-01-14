@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -159,6 +160,152 @@ class ExcelReader:
                 continue
 
         return total
+
+    def get_monthly_sums(
+        self,
+        tab_name: str,
+        date_range: ColumnRange,
+        value_range: ColumnRange,
+    ) -> dict[int, float]:
+        """Get sums grouped by month from date+value columns.
+
+        Parses dates in DD.MM.YYYY format (German locale).
+
+        Args:
+            tab_name: Name of the worksheet/tab.
+            date_range: Parsed column range for dates.
+            value_range: Parsed column range for values.
+
+        Returns:
+            Dict mapping month number (1-12) to sum of values.
+        """
+        self._ensure_workbook()
+
+        if self._is_xlsx:
+            return self._get_monthly_sums_xlsx(tab_name, date_range, value_range)
+        else:
+            return self._get_monthly_sums_xls(tab_name, date_range, value_range)
+
+    def _parse_date_string(self, date_str: str) -> datetime | None:
+        """Parse a date string in DD.MM.YYYY format.
+
+        Args:
+            date_str: Date string like "12.01.2026" or "5.3.2024".
+
+        Returns:
+            datetime object or None if parsing fails.
+        """
+        try:
+            return datetime.strptime(date_str.strip(), "%d.%m.%Y")
+        except (ValueError, AttributeError):
+            return None
+
+    def _get_monthly_sums_xlsx(
+        self,
+        tab_name: str,
+        date_range: ColumnRange,
+        value_range: ColumnRange,
+    ) -> dict[int, float]:
+        """Get monthly sums from xlsx file using openpyxl."""
+        try:
+            sheet = self._workbook[tab_name]
+        except KeyError:
+            return {}
+
+        date_col_idx = self.column_letter_to_index(date_range.column) + 1  # openpyxl is 1-based
+        value_col_idx = self.column_letter_to_index(value_range.column) + 1
+
+        monthly_totals: dict[int, float] = {}
+
+        # Use the same start row for both, end at the larger end_row or max_row
+        start_row = max(date_range.start_row, value_range.start_row)
+        end_row = min(
+            date_range.end_row or sheet.max_row,
+            value_range.end_row or sheet.max_row,
+        )
+
+        for row in range(start_row, end_row + 1):
+            date_cell = sheet.cell(row=row, column=date_col_idx)
+            value_cell = sheet.cell(row=row, column=value_col_idx)
+
+            # Get date - can be datetime or string
+            date_value = date_cell.value
+            if date_value is None:
+                continue
+
+            month: int | None = None
+            if isinstance(date_value, datetime):
+                month = date_value.month
+            elif isinstance(date_value, str):
+                parsed = self._parse_date_string(date_value)
+                if parsed:
+                    month = parsed.month
+
+            if month is None:
+                continue
+
+            # Get value
+            if value_cell.value is not None and isinstance(value_cell.value, (int, float)):
+                monthly_totals[month] = monthly_totals.get(month, 0.0) + float(value_cell.value)
+
+        return monthly_totals
+
+    def _get_monthly_sums_xls(
+        self,
+        tab_name: str,
+        date_range: ColumnRange,
+        value_range: ColumnRange,
+    ) -> dict[int, float]:
+        """Get monthly sums from xls file using xlrd."""
+        import xlrd
+
+        try:
+            sheet = self._workbook.sheet_by_name(tab_name)
+        except xlrd.biffh.XLRDError:
+            return {}
+
+        date_col_idx = self.column_letter_to_index(date_range.column)  # xlrd is 0-based
+        value_col_idx = self.column_letter_to_index(value_range.column)
+
+        monthly_totals: dict[int, float] = {}
+
+        # Use the same start row for both (convert to 0-based)
+        start_row = max(date_range.start_row, value_range.start_row) - 1
+        end_row = min(
+            (date_range.end_row - 1) if date_range.end_row else sheet.nrows - 1,
+            (value_range.end_row - 1) if value_range.end_row else sheet.nrows - 1,
+        )
+
+        for row in range(start_row, min(end_row + 1, sheet.nrows)):
+            try:
+                date_cell = sheet.cell(row, date_col_idx)
+                value_cell = sheet.cell(row, value_col_idx)
+            except IndexError:
+                continue
+
+            # Get month from date cell
+            month: int | None = None
+
+            # xlrd cell types: 0=empty, 1=text, 2=number, 3=date, 4=boolean, 5=error
+            if date_cell.ctype == 3:  # DATE type
+                try:
+                    dt = xlrd.xldate_as_datetime(date_cell.value, self._workbook.datemode)
+                    month = dt.month
+                except (ValueError, TypeError):
+                    pass
+            elif date_cell.ctype == 1:  # TEXT type
+                parsed = self._parse_date_string(str(date_cell.value))
+                if parsed:
+                    month = parsed.month
+
+            if month is None:
+                continue
+
+            # Get value
+            if value_cell.ctype == 2:  # NUMBER type
+                monthly_totals[month] = monthly_totals.get(month, 0.0) + float(value_cell.value)
+
+        return monthly_totals
 
     def get_available_tabs(self) -> list[str]:
         """Get list of available tab names.

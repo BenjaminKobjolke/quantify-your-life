@@ -8,10 +8,13 @@ from jinja2 import Environment, FileSystemLoader
 
 from quantify.cli.handlers.period_selector import get_period_label
 from quantify.config.settings import ExportSettings
+from quantify.export.monthly_builder import build_monthly_chart_data
 from quantify.export.stats_builder import build_chart_data, build_stats_rows
 from quantify.export.top_features_exporter import export_top_features
+from quantify.services.monthly_stats import MonthlyStats
 from quantify.services.stats import TimeStats
 from quantify.sources.base import DisplayConfig
+from quantify.sources.excel.source import ExcelSource
 from quantify.sources.registry import SourceRegistry
 from quantify.sources.track_and_graph import TrackAndGraphSource
 
@@ -100,6 +103,35 @@ class HtmlExporter:
                 period_label = get_period_label(entry.period)
                 display_name = f"Top Features - {group_name} ({period_label})"
                 generated_files.append(file_path)
+                index_entries.append({"name": display_name, "filename": file_path.name})
+                continue
+
+            # Handle monthly_comparison entry type
+            if entry.entry_type == "monthly_comparison":
+                if not isinstance(source, ExcelSource):
+                    continue
+                if not source.has_monthly_comparison:
+                    continue
+
+                monthly_stats = source.get_monthly_stats()
+                if monthly_stats is None:
+                    continue
+
+                # Get item name for monthly comparison
+                name = source.get_item_name(entry.entry_id, entry.entry_type)
+                if name is None:
+                    name = source.info.display_name
+
+                file_path = self._export_monthly_comparison(
+                    output_dir=output_dir,
+                    name=name,
+                    source_id=entry.source,
+                    stats=monthly_stats,
+                    custom_title=entry.title,
+                    php_mode=php_mode,
+                )
+                generated_files.append(file_path)
+                display_name = entry.title if entry.title else name
                 index_entries.append({"name": display_name, "filename": file_path.name})
                 continue
 
@@ -210,6 +242,10 @@ class HtmlExporter:
         src_top_js = self._static_dir / "js" / "top_chart.js"
         if src_top_js.exists():
             shutil.copy(src_top_js, js_dir / "top_chart.js")
+
+        src_monthly_js = self._static_dir / "js" / "monthly_chart.js"
+        if src_monthly_js.exists():
+            shutil.copy(src_monthly_js, js_dir / "monthly_chart.js")
 
     def _copy_php_library(self, output_dir: Path) -> None:
         """Copy php-simple-login source files to output directory.
@@ -347,6 +383,60 @@ SimpleLogin::requireAuth();
         safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
         entry_id_str = str(entry_id) if entry_id is not None else "all"
         filename = f"{source_id}_{entry_type}_{entry_id_str}_{safe_name}{extension}"
+        file_path = output_dir / filename
+
+        # Wrap with PHP authentication if enabled
+        content = self._wrap_html_with_php(html_content) if php_mode else html_content
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        return file_path
+
+    def _export_monthly_comparison(
+        self,
+        output_dir: Path,
+        name: str,
+        source_id: str,
+        stats: MonthlyStats,
+        custom_title: str | None = None,
+        php_mode: bool = False,
+    ) -> Path:
+        """Export monthly comparison chart for an Excel source.
+
+        Args:
+            output_dir: Output directory path.
+            name: Name of the item.
+            source_id: Source identifier.
+            stats: Monthly comparison statistics.
+            custom_title: Optional custom page title (uses name if None).
+            php_mode: If True, output PHP file with authentication.
+
+        Returns:
+            Path to generated file.
+        """
+        template = self._env.get_template("monthly_comparison.html")
+
+        title = custom_title if custom_title else name
+        chart_data = build_monthly_chart_data(stats)
+
+        # Build chart title
+        unit_label = stats.unit_label or "Value"
+        chart_title = f"Monthly {unit_label.capitalize()} by Year"
+
+        html_content = template.render(
+            title=title,
+            chart_labels=chart_data["labels"],
+            chart_datasets=chart_data["datasets"],
+            chart_title=chart_title,
+            unit_label=stats.unit_label,
+            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        )
+
+        # Generate filename with appropriate extension
+        extension = ".php" if php_mode else ".html"
+        safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
+        filename = f"{source_id}_monthly_comparison_all_{safe_name}{extension}"
         file_path = output_dir / filename
 
         # Wrap with PHP authentication if enabled
