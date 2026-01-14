@@ -43,6 +43,7 @@ The Excel data source reads values from specified columns in Excel files, where 
 | `function` | string | No | `"sum"` | Aggregation function (currently only "sum") |
 | `unit_label` | string | No | `""` | Optional unit label for display (e.g., "EUR", "kg") |
 | `display` | object | No | `null` | Display configuration for stats output |
+| `date_column` | string | No | `null` | Column range for dates (e.g., "D3:D") - enables monthly comparison |
 
 ### Display Configuration
 
@@ -170,6 +171,49 @@ For multiple Excel sources, use the source ID:
 - Second source: `"excel_1"`
 - Third source: `"excel_2"`
 - etc.
+
+## Monthly Comparison
+
+When `date_column` is configured, you can export a monthly year-over-year comparison chart that groups values by month and compares across years.
+
+### Configuration
+
+```json
+{
+    "name": "Revenue",
+    "file_path": "C:/finances.xlsx",
+    "tabs": {
+        "2024": "K3:K",
+        "2025": "K3:K"
+    },
+    "date_column": "D3:D",
+    "unit_label": "EUR"
+}
+```
+
+The `date_column` should contain dates in DD.MM.YYYY format (e.g., "12.01.2026"). Each row's date determines which month the value belongs to.
+
+### Export Configuration
+
+To export the monthly comparison chart:
+
+```json
+{
+    "export": {
+        "entries": [
+            {"source": "excel", "type": "monthly_comparison", "id": null, "title": "Monthly Revenue"}
+        ]
+    }
+}
+```
+
+### Interactive Features
+
+The monthly comparison chart includes:
+
+- **Grouped bar chart** - Compare same months across different years side by side (e.g., January 2024 vs January 2025)
+- **Dropdown selector** - Switch between "All Months" view or individual months (January-December)
+- **Arrow key navigation** - Press ← → to cycle through months (All → Jan → Feb → ... → Dec → All)
 
 ## Example Use Cases
 

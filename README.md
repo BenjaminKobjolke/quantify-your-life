@@ -18,6 +18,7 @@ CLI tool to view statistics from multiple data sources, including the [Track & G
 - View statistics by **Group** (aggregated) or **Feature** (individual tracker)
 - Arrow key navigation for easy selection
 - **HTML Export** with charts for configured entries
+- **Monthly comparison** - Year-over-year grouped bar charts with interactive month selector (Excel sources)
 - **Unit support** - Time (hours/minutes) and distance (km/mi)
 - **Configurable display** - Custom number of years, YoY percentages, chart types and titles
 - Comprehensive statistics:
@@ -121,7 +122,7 @@ Export configuration is stored in `config.json`:
 
 **Export entry options:**
 - `source` - Data source ID (required)
-- `type` - Entry type: `"group"`, `"feature"`, `"stats"`, `"top_features"` (required)
+- `type` - Entry type: `"group"`, `"feature"`, `"stats"`, `"top_features"`, `"monthly_comparison"` (required)
 - `id` - Item ID, or `null` for sources with single stats (required)
 - `title` - Custom page title (optional, defaults to item name)
 
