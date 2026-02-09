@@ -80,6 +80,7 @@ def _create_source_registry(settings: Settings) -> SourceRegistry:
                 unit_label=excel_src.unit_label,
                 display_config=parse_display_config(excel_src.display),
                 date_column=excel_src.date_column,
+                source_type=excel_src.source_type,
             )
             registry.register(source)
 

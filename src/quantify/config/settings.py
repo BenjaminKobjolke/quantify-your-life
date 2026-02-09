@@ -193,11 +193,12 @@ class ExcelSourceConfig:
 
     name: str  # Display name (e.g., "Savings", "Weight")
     file_path: str  # Path to the Excel file
-    tabs: dict[str, str]  # {tab_name: column_range} e.g. {"2024": "K2:K", "2025": "L2:L"}
+    tabs: dict[str, str] | list[str]  # dict for standard, list for OKR
     function: str = "sum"  # Aggregation function (currently only "sum")
     unit_label: str = ""  # Optional unit label (e.g., "EUR", "kg")
     display: dict[str, Any] | None = None  # Display config (hide_rows, show_rows)
     date_column: str | None = None  # Optional date column for monthly comparison (e.g., "D3:D")
+    source_type: str = ""  # Source type: "" for standard, "OKR" for OKR tracking
 
 
 @dataclass(frozen=True)
@@ -513,6 +514,7 @@ class Settings:
                         unit_label=src.get("unit_label", ""),
                         display=src.get("display"),
                         date_column=src.get("date_column"),
+                        source_type=src.get("type", ""),
                     )
                 )
             excel_config = ExcelConfig(sources=tuple(excel_sources))

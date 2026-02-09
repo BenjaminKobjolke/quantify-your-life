@@ -9,9 +9,11 @@ from jinja2 import Environment, FileSystemLoader
 from quantify.cli.handlers.period_selector import get_period_label
 from quantify.config.settings import ExportSettings
 from quantify.export.monthly_builder import build_monthly_chart_data
+from quantify.export.okr_builder import build_okr_chart_data
 from quantify.export.stats_builder import build_chart_data, build_stats_rows
 from quantify.export.top_features_exporter import export_top_features
 from quantify.services.monthly_stats import MonthlyStats
+from quantify.services.okr_stats import OkrStats
 from quantify.services.stats import TimeStats
 from quantify.sources.base import DisplayConfig
 from quantify.sources.excel.source import ExcelSource
@@ -56,6 +58,11 @@ class HtmlExporter:
             List of generated file paths.
         """
         output_dir = Path(export_settings.path)
+        if output_dir.is_file():
+            raise ValueError(
+                f"Export path points to an existing file: {output_dir}\n"
+                "The export path must be a directory, not a file."
+            )
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Copy static files
@@ -133,6 +140,36 @@ class HtmlExporter:
                 generated_files.append(file_path)
                 display_name = entry.title if entry.title else name
                 index_entries.append({"name": display_name, "filename": file_path.name})
+                continue
+
+            # Handle OKR entry type
+            if entry.entry_type == "okr":
+                if not isinstance(source, ExcelSource):
+                    continue
+                if not source.is_okr:
+                    continue
+
+                for tab_name in source.okr_tabs:
+                    okr_stats = source.get_okr_stats(tab_name)
+                    if okr_stats is None or not okr_stats.key_results:
+                        continue
+
+                    name = source.get_item_name(entry.entry_id, entry.entry_type)
+                    if name is None:
+                        name = source.info.display_name
+
+                    file_path = self._export_okr(
+                        output_dir=output_dir,
+                        name=name,
+                        source_id=entry.source,
+                        tab_name=tab_name,
+                        stats=okr_stats,
+                        custom_title=entry.title,
+                        php_mode=php_mode,
+                    )
+                    generated_files.append(file_path)
+                    display_name = entry.title if entry.title else f"{name} - {tab_name}"
+                    index_entries.append({"name": display_name, "filename": file_path.name})
                 continue
 
             # Get item name
@@ -246,6 +283,10 @@ class HtmlExporter:
         src_monthly_js = self._static_dir / "js" / "monthly_chart.js"
         if src_monthly_js.exists():
             shutil.copy(src_monthly_js, js_dir / "monthly_chart.js")
+
+        src_okr_js = self._static_dir / "js" / "okr_chart.js"
+        if src_okr_js.exists():
+            shutil.copy(src_okr_js, js_dir / "okr_chart.js")
 
     def _copy_php_library(self, output_dir: Path) -> None:
         """Copy php-simple-login source files to output directory.
@@ -437,6 +478,72 @@ SimpleLogin::requireAuth();
         extension = ".php" if php_mode else ".html"
         safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
         filename = f"{source_id}_monthly_comparison_all_{safe_name}{extension}"
+        file_path = output_dir / filename
+
+        # Wrap with PHP authentication if enabled
+        content = self._wrap_html_with_php(html_content) if php_mode else html_content
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        return file_path
+
+    def _export_okr(
+        self,
+        output_dir: Path,
+        name: str,
+        source_id: str,
+        tab_name: str,
+        stats: OkrStats,
+        custom_title: str | None = None,
+        php_mode: bool = False,
+    ) -> Path:
+        """Export OKR line chart for an Excel OKR source.
+
+        Args:
+            output_dir: Output directory path.
+            name: Name of the OKR source.
+            source_id: Source identifier.
+            tab_name: Tab name for the OKR data.
+            stats: OKR statistics with Key Results.
+            custom_title: Optional custom page title.
+            php_mode: If True, output PHP file with authentication.
+
+        Returns:
+            Path to generated file.
+        """
+        template = self._env.get_template("okr.html")
+
+        title = custom_title if custom_title else f"{name} - {tab_name}"
+        chart_data = build_okr_chart_data(stats)
+        chart_title = "Key Results Progress"
+
+        # Build KR summary data for the table
+        key_results_data = []
+        for kr in stats.key_results:
+            # Get the latest percentage value
+            current_pct = kr.data_points[-1][1] if kr.data_points else 0.0
+            key_results_data.append({
+                "name": kr.name,
+                "target": f"{kr.target:g}",
+                "current": f"{current_pct:.1f}%",
+                "progress": round(current_pct, 1),
+            })
+
+        html_content = template.render(
+            title=title,
+            chart_labels=chart_data["labels"],
+            chart_datasets=chart_data["datasets"],
+            chart_title=chart_title,
+            key_results=key_results_data,
+            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        )
+
+        # Generate filename with appropriate extension
+        extension = ".php" if php_mode else ".html"
+        safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
+        safe_tab = "".join(c if c.isalnum() or c in "-_" else "_" for c in tab_name)
+        filename = f"{source_id}_okr_{safe_tab}_{safe_name}{extension}"
         file_path = output_dir / filename
 
         # Wrap with PHP authentication if enabled
